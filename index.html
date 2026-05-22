@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovaJS — Demo Hub</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a14;
+      color: #e0e0ff;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+    h1 { font-size: 3rem; color: #a78bfa; margin-bottom: 0.2em; letter-spacing: 0.05em; }
+    .subtitle { color: #7c6fcd; margin-bottom: 3rem; font-size: 1.1rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; width: 100%; max-width: 1100px; }
+    .card {
+      background: #12121e;
+      border: 1px solid #2a2a4a;
+      border-radius: 12px;
+      padding: 24px;
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .card:hover { border-color: #a78bfa; transform: translateY(-3px); background: #16162a; }
+    .card-icon  { font-size: 2.5rem; }
+    .card-title { font-size: 1.2rem; font-weight: bold; color: #c4b5fd; }
+    .card-desc  { font-size: 0.9rem; color: #9090b0; line-height: 1.5; }
+    .badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 99px; background: #1e1e3f; color: #a78bfa; border: 1px solid #4c3f8f; width: fit-content; }
+    canvas { display: block; }
+    /* Embedded demo */
+    #demo-canvas { position: fixed; top:0;left:0;width:100%;height:100%; display:none; }
+    #back { position:fixed; top:15px;left:15px; background:#a78bfa33; border:1px solid #a78bfa; color:#fff; padding:8px 16px; border-radius:8px; cursor:pointer; font-size:1rem; display:none; z-index:10; }
+  </style>
+</head>
+<body>
+  <h1>✦ NovaJS</h1>
+  <p class="subtitle">WebGL2 3D Engine — Demo Hub</p>
+  <div class="grid">
+    <a class="card" href="demos/demo1-cube.html">
+      <div class="card-icon">🟪</div>
+      <div class="card-title">Demo 1 — Rotating Cube</div>
+      <div class="badge">Core Rendering</div>
+      <div class="card-desc">The classic first test. A lit, rotating cube with the full MVP matrix pipeline.</div>
+    </a>
+    <a class="card" href="demos/demo2-torus.html">
+      <div class="card-icon">🍩</div>
+      <div class="card-title">Demo 2 — Animated Shader Torus</div>
+      <div class="badge">ShaderMaterial</div>
+      <div class="card-desc">Torus donut with animated neon, hologram, and gradient shaders. Time-based GLSL.</div>
+    </a>
+    <a class="card" href="demos/demo3-fps.html">
+      <div class="card-icon">🎮</div>
+      <div class="card-title">Demo 3 — FPS Controls</div>
+      <div class="badge">FPSControls</div>
+      <div class="card-desc">Click to lock mouse. WASD + mouse look, Space to jump. Sprint with Shift.</div>
+    </a>
+    <a class="card" href="demos/demo4-physics.html">
+      <div class="card-icon">🧱</div>
+      <div class="card-title">Demo 4 — Physics Boxes</div>
+      <div class="badge">PhysicsWorld</div>
+      <div class="card-desc">AABB rigid body physics. Boxes fall, stack, and collide with the floor.</div>
+    </a>
+    <a class="card" href="demos/demo5-water.html">
+      <div class="card-icon">🌊</div>
+      <div class="card-title">Demo 5 — Water Shader</div>
+      <div class="badge">ShaderMaterial</div>
+      <div class="card-desc">Animated wave distortion with procedural noise, Fresnel rim, and reflections.</div>
+    </a>
+    <a class="card" href="demos/demo6-neon.html">
+      <div class="card-icon">🌆</div>
+      <div class="card-title">Demo 6 — Neon Cyberpunk</div>
+      <div class="badge">Custom Shaders</div>
+      <div class="card-desc">Neon glow, scanlines, glitch effects, lava, and hologram on multiple objects.</div>
+    </a>
+    <a class="card" href="demos/demo7-particles.html">
+      <div class="card-icon">🔥</div>
+      <div class="card-title">Demo 7 — Particle Systems</div>
+      <div class="badge">ParticleSystem</div>
+      <div class="card-desc">Fire, smoke, sparks, and snow. GPU point-sprite particles with additive blending.</div>
+    </a>
+    <a class="card" href="demos/demo8-postprocess.html">
+      <div class="card-icon">📺</div>
+      <div class="card-title">Demo 8 — Post-Processing</div>
+      <div class="badge">PostProcessor</div>
+      <div class="card-desc">CRT, bloom, chromatic aberration, vignette, pixelation and color grading.</div>
+    </a>
+  </div>
+</body>
+</html>

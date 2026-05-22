@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>NovaJS — Demo 2: Shader Torus</title>
+  <style>
+    * { margin:0;padding:0;box-sizing:border-box; }
+    body { background:#000;overflow:hidden; }
+    canvas { width:100vw;height:100vh;display:block; }
+    #info  { position:fixed;top:15px;left:15px;color:#0ff;font-family:monospace;font-size:13px; }
+    #btns  { position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:10px; }
+    .btn   { background:#0002;border:1px solid #0ff4;color:#0ff;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px; }
+    .btn:hover { background:#0ff2; }
+    #back { position:fixed;top:15px;right:15px;background:#0ff3;border:1px solid #0ff;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;text-decoration:none; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="info">✦ NovaJS — Demo 2: Animated Shaders<br>Click buttons to switch effects</div>
+  <div id="btns">
+    <button class="btn" onclick="setShader('neon')">Neon</button>
+    <button class="btn" onclick="setShader('hologram')">Hologram</button>
+    <button class="btn" onclick="setShader('toon')">Toon</button>
+    <button class="btn" onclick="setShader('lava')">Lava</button>
+    <button class="btn" onclick="setShader('dissolve')">Dissolve</button>
+  </div>
+  <a id="back" href="../index.html">← Back</a>
+
+<script type="module">
+import * as Nova from '../src/novajs.js';
+
+// ── Shader library ────────────────────────────────────────────────────────────
+const VERT = `#version 300 es
+precision highp float;
+in vec3 position; in vec3 normal; in vec2 uv;
+uniform mat4 modelMatrix; uniform mat4 viewMatrix; uniform mat4 projectionMatrix;
+uniform mat3 normalMatrix;
+out vec3 vNormal; out vec3 vPos; out vec2 vUV; out vec3 vWorldPos;
+void main() {
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorldPos = wp.xyz;
+  vNormal = normalize(normalMatrix * normal);
+  vPos = position; vUV = uv;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
+const SHADERS = {
+  neon: `#version 300 es
+precision highp float;
+in vec3 vNormal; in vec3 vWorldPos; in vec2 vUV;
+uniform float time; uniform vec3 cameraPos;
+out vec4 fragColor;
+void main() {
+  vec3 N = normalize(vNormal);
+  vec3 V = normalize(cameraPos - vWorldPos);
+  float rim = 1.0 - max(dot(N, V), 0.0);
+  rim = pow(rim, 2.5);
+  // Animated neon color cycle
+  float t = time * 0.8;
+  vec3 neonA = vec3(0.0, 1.0, 1.0);
+  vec3 neonB = vec3(1.0, 0.0, 1.0);
+  vec3 col = mix(neonA, neonB, sin(t + vUV.y * 6.28) * 0.5 + 0.5);
+  // Fresnel glow
+  vec3 glow = col * rim * 3.0;
+  // Scanline effect on surface
+  float scan = sin(vWorldPos.y * 30.0 + time * 5.0) * 0.5 + 0.5;
+  col = mix(col * 0.3, col, scan * rim + 0.1);
+  fragColor = vec4(col + glow, 1.0);
+}`,
+
+  hologram: `#version 300 es
+precision highp float;
+in vec3 vNormal; in vec3 vWorldPos; in vec2 vUV;
+uniform float time; uniform vec3 cameraPos;
+out vec4 fragColor;
+void main() {
+  vec3 N = normalize(vNormal);
+  vec3 V = normalize(cameraPos - vWorldPos);
+  float rim = pow(1.0 - max(dot(N, V), 0.0), 1.5);
+  // Horizontal scan bands
+  float scan = sin(vWorldPos.y * 40.0 - time * 8.0) * 0.5 + 0.5;
+  // Glitch flicker
+  float glitch = step(0.97, sin(time * 7.3 + vWorldPos.y * 5.0));
+  float flicker = 0.85 + 0.15 * sin(time * 60.0);
+  vec3 col = vec3(0.1, 0.9, 1.0);
+  float alpha = (rim * 0.8 + scan * 0.2 + 0.05) * flicker;
+  alpha = mix(alpha, alpha * 3.0, glitch);
+  fragColor = vec4(col * alpha, alpha * 0.9);
+}`,
+
+  toon: `#version 300 es
+precision highp float;
+in vec3 vNormal; in vec3 vWorldPos; in vec2 vUV;
+uniform float time;
+out vec4 fragColor;
+void main() {
+  vec3 N = normalize(vNormal);
+  vec3 L = normalize(vec3(1.0, 2.0, 1.0));
+  float diff = max(dot(N, L), 0.0);
+  // Quantize to 4 toon steps
+  float toon = floor(diff * 4.0) / 4.0;
+  vec3 col = vec3(0.9, 0.4, 0.1);
+  col *= (toon * 0.8 + 0.2);
+  // Outline
+  vec3 V = normalize(vec3(0,0,1));
+  float rim = 1.0 - max(dot(N, V), 0.0);
+  float outline = step(0.75, rim);
+  col = mix(col, vec3(0.0), outline);
+  fragColor = vec4(col, 1.0);
+}`,
+
+  lava: `#version 300 es
+precision highp float;
+in vec3 vNormal; in vec3 vWorldPos; in vec2 vUV;
+uniform float time;
+out vec4 fragColor;
+// Simple hash noise
+float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5); }
+float noise(vec2 p){
+  vec2 i=floor(p), f=fract(p);
+  f=f*f*(3.0-2.0*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),
+             mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
+}
+float fbm(vec2 p, float t){ float v=0.0,a=0.5; for(int i=0;i<5;i++){v+=a*noise(p+t);p*=2.0;a*=0.5;} return v; }
+void main() {
+  vec2 uv = vUV * 3.0 + vec2(time * 0.1);
+  float n = fbm(uv + fbm(uv + fbm(uv, time * 0.05), time * 0.1), time * 0.15);
+  vec3 hot  = vec3(1.0, 0.8, 0.0);
+  vec3 cool = vec3(0.5, 0.0, 0.0);
+  vec3 dark = vec3(0.05, 0.0, 0.0);
+  vec3 col = mix(dark, cool, n);
+  col = mix(col, hot, pow(n, 2.0) * 2.0);
+  fragColor = vec4(col, 1.0);
+}`,
+
+  dissolve: `#version 300 es
+precision highp float;
+in vec3 vNormal; in vec3 vPos; in vec2 vUV;
+uniform float time;
+out vec4 fragColor;
+float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5); }
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  f=f*f*(3.0-2.0*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),
+             mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
+}
+void main() {
+  float threshold = (sin(time*0.7)*0.5+0.5); // oscillate
+  float n = noise(vUV * 8.0 + noise(vUV * 4.0));
+  if (n < threshold) discard;
+  // Edge glow
+  float edge = smoothstep(threshold, threshold + 0.05, n);
+  vec3 col  = mix(vec3(1.0, 0.3, 0.0), vec3(0.4, 0.7, 1.0), vUV.y);
+  vec3 glow = vec3(1.0, 0.5, 0.0) * (1.0 - edge) * 3.0;
+  fragColor = vec4(col + glow, 1.0);
+}`
+};
+
+// ── Engine setup ──────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const engine = new Nova.Engine(canvas);
+const scene  = new Nova.Scene();
+scene.setBackground(0.02, 0.02, 0.05);
+const camera = new Nova.PerspectiveCamera(65, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(0, 0, 5);
+
+let currentMat = new Nova.ShaderMaterial({ vertexShader: VERT, fragmentShader: SHADERS.neon });
+const torus = new Nova.Mesh(new Nova.TorusGeometry(1.5, 0.5, 64, 32), currentMat);
+scene.add(torus);
+
+// Second torus
+const torus2 = new Nova.Mesh(
+  new Nova.TorusGeometry(0.8, 0.25, 32, 16),
+  new Nova.ShaderMaterial({ vertexShader: VERT, fragmentShader: SHADERS.hologram })
+);
+torus2.rotation.x = Math.PI / 2;
+scene.add(torus2);
+
+window.setShader = (name) => {
+  torus.material = new Nova.ShaderMaterial({ vertexShader: VERT, fragmentShader: SHADERS[name] });
+};
+
+// Manual cameraPos upload each frame
+engine.start(scene, camera, (delta, time) => {
+  torus.rotation.y  += delta * 0.5;
+  torus.rotation.z  += delta * 0.2;
+  torus2.rotation.x += delta * 0.7;
+  torus2.rotation.y += delta * 0.3;
+  // Upload camera position for shaders that need it
+  if (torus.material.uniforms) {
+    torus.material.uniforms['cameraPos'] = [camera.position.x, camera.position.y, camera.position.z];
+  }
+});
+</script>
+</body>
+</html>

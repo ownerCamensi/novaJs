@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>NovaJS — Demo 1: Rotating Cube</title>
+  <style>
+    * { margin:0;padding:0;box-sizing:border-box; }
+    body { background:#000; overflow:hidden; }
+    canvas { width:100vw;height:100vh;display:block; }
+    #info { position:fixed;top:15px;left:15px;color:#a78bfa;font-family:monospace;font-size:14px;pointer-events:none; }
+    #back { position:fixed;top:15px;right:15px;background:#a78bfa33;border:1px solid #a78bfa;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;text-decoration:none; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="info">✦ NovaJS — Demo 1: Rotating Cube<br>Phong lighting · 3 point lights</div>
+  <a id="back" href="../index.html">← Back</a>
+
+  <script type="module">
+    import * as Nova from '../src/novajs.js';
+
+    // ── Setup ────────────────────────────────────────────────────────────────
+    const canvas = document.getElementById('c');
+    const engine = new Nova.Engine(canvas);
+    const scene  = new Nova.Scene();
+    scene.setBackground(0.04, 0.04, 0.10, 1);
+
+    const camera = new Nova.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 500);
+    camera.position.set(0, 1.5, 5);
+
+    // ── Lighting ─────────────────────────────────────────────────────────────
+    const ambient = new Nova.AmbientLight(0x223366, 0.5);
+    scene.add(ambient);
+
+    const dirLight = new Nova.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5, 8, 5);
+    dirLight.target.set(0, 0, 0);
+    scene.add(dirLight);
+
+    const p1 = new Nova.PointLight(0xff4466, 2.5, 15);
+    p1.position.set(-3, 2, 3);
+    scene.add(p1);
+
+    const p2 = new Nova.PointLight(0x44aaff, 2.5, 15);
+    p2.position.set(3, 2, -2);
+    scene.add(p2);
+
+    // ── Cube mesh ─────────────────────────────────────────────────────────────
+    const cube = new Nova.Mesh(
+      new Nova.BoxGeometry(2, 2, 2),
+      new Nova.BasicMaterial({ color: { r:0.6, g:0.4, b:0.9 } })
+    );
+    scene.add(cube);
+
+    // ── Floor ─────────────────────────────────────────────────────────────────
+    const floor = new Nova.Mesh(
+      new Nova.PlaneGeometry(20, 20, 10, 10),
+      new Nova.BasicMaterial({ color: { r:0.1, g:0.1, b:0.15 } })
+    );
+    floor.position.y = -1.5;
+    scene.add(floor);
+
+    // ── Orbit camera ─────────────────────────────────────────────────────────
+    let angle = 0;
+
+    engine.start(scene, camera, (delta, time) => {
+      // Rotate cube
+      cube.rotation.y += delta * 0.8;
+      cube.rotation.x += delta * 0.3;
+
+      // Orbit camera
+      angle += delta * 0.3;
+      camera.position.x = Math.sin(angle) * 5;
+      camera.position.z = Math.cos(angle) * 5;
+      camera.rotation.y = -angle;
+
+      // Animate point lights
+      p1.position.x = Math.sin(time * 1.2) * 4;
+      p1.position.z = Math.cos(time * 0.9) * 4;
+      p2.position.x = Math.cos(time * 0.7) * 4;
+      p2.position.z = Math.sin(time * 1.1) * 4;
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>NovaJS — Demo 8: Post-Processing</title>
+<style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#000;overflow:hidden;}canvas{width:100vw;height:100vh;display:block;}
+#info{position:fixed;top:15px;left:15px;color:#0f0;font-family:monospace;font-size:13px;}
+#btns{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
+.btn{background:#0f02;border:1px solid #0f07;color:#0f0;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;}
+.btn.active{background:#0f04;border-color:#0f0;}
+#back{position:fixed;top:15px;right:15px;background:#0f03;border:1px solid #0f0;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;text-decoration:none;}</style>
+</head><body>
+<canvas id="c"></canvas>
+<div id="info">✦ NovaJS — Post-Processing Pipeline<br>Render-to-texture → fullscreen effects</div>
+<div id="btns">
+  <button class="btn" onclick="setFX('passthrough')">None</button>
+  <button class="btn active" onclick="setFX('crt')">📺 CRT</button>
+  <button class="btn" onclick="setFX('bloom')">✨ Bloom</button>
+  <button class="btn" onclick="setFX('chromaticAberration')">🌈 Aberration</button>
+  <button class="btn" onclick="setFX('vignette')">🔲 Vignette</button>
+  <button class="btn" onclick="setFX('pixelate')">🟦 Pixelate</button>
+  <button class="btn" onclick="setFX('colorGrade')">🎨 Color Grade</button>
+</div>
+<a id="back" href="../index.html">← Back</a>
+<script type="module">
+import * as Nova from '../src/novajs.js';
+
+const canvas = document.getElementById('c');
+const engine = new Nova.Engine(canvas);
+const scene  = new Nova.Scene();
+scene.setBackground(0.04, 0.04, 0.10, 1);
+
+const camera = new Nova.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 300);
+camera.position.set(0, 3, 10);
+
+// Lights
+scene.add(new Nova.AmbientLight(0x334477, 0.6));
+const dir = new Nova.DirectionalLight(0xffffff, 1.0);
+dir.position.set(5,10,8); scene.add(dir);
+const p1 = new Nova.PointLight(0xff4488, 2, 20);
+p1.position.set(-4,3,2); scene.add(p1);
+const p2 = new Nova.PointLight(0x44aaff, 2, 20);
+p2.position.set(4,3,2);  scene.add(p2);
+
+// Post-processor
+const pp = new Nova.PostProcessor(engine.renderer.gl, innerWidth, innerHeight);
+pp.addEffect('crt');
+window.addEventListener('resize', () => pp.resize(innerWidth, innerHeight));
+
+window.setFX = (name) => {
+  pp._effects.length = 0;
+  pp.addEffect(name);
+  document.querySelectorAll('.btn').forEach(b => {
+    b.classList.toggle('active', b.textContent.toLowerCase().includes(name.toLowerCase()) || 
+      (name === 'passthrough' && b.textContent === 'None'));
+  });
+};
+
+// Scene objects — colorful rotating shapes
+const geo = [new Nova.BoxGeometry(), new Nova.SphereGeometry(0.6,16,12), new Nova.TorusGeometry(0.6,0.2,16,12)];
+const cols = [{r:0.8,g:0.3,b:0.3},{r:0.3,g:0.7,b:0.4},{r:0.4,g:0.4,b:0.9},{r:0.9,g:0.7,b:0.2},{r:0.7,g:0.3,b:0.8}];
+const meshes = [];
+
+for (let i = 0; i < 9; i++) {
+  const m = new Nova.Mesh(
+    geo[i % geo.length],
+    new Nova.BasicMaterial({ color: cols[i % cols.length] })
+  );
+  m.position.set((i%3 - 1) * 3.5, Math.floor(i/3) * 3 - 1.5, (Math.random()-0.5)*2);
+  m.rotation.set(Math.random()*6.28, Math.random()*6.28, Math.random()*6.28);
+  scene.add(m);
+  meshes.push(m);
+}
+
+const floor = new Nova.Mesh(
+  new Nova.PlaneGeometry(30,20,1,1),
+  new Nova.BasicMaterial({ color:{r:0.08,g:0.08,b:0.14} })
+);
+floor.position.y = -2;
+scene.add(floor);
+
+let totalTime = 0;
+engine.start(scene, camera, (delta, time) => {
+  totalTime = time;
+  meshes.forEach((m, i) => {
+    m.rotation.x += delta * (0.3 + i * 0.05);
+    m.rotation.y += delta * (0.5 + i * 0.03);
+  });
+  p1.position.x = Math.sin(time * 0.8) * 5;
+  p2.position.x = Math.cos(time * 0.6) * 5;
+  camera.rotation.y = Math.sin(time * 0.1) * 0.15;
+});
+
+// Override render to use post-processing
+const origRender = engine.renderer.render.bind(engine.renderer);
+engine.renderer.render = (scene, camera, t) => {
+  pp.begin();
+  origRender(scene, camera, t);
+  pp.end(t);
+};
+</script></body></html>

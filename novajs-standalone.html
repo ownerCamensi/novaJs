@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovaJS — Live Demo (Standalone)</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:#0a0a14; color:#e0e0ff; font-family:'Segoe UI',system-ui,sans-serif; overflow:hidden; }
+    canvas { width:100vw; height:100vh; display:block; }
+    #ui {
+      position:fixed; top:0; left:0; right:0;
+      display:flex; justify-content:space-between; align-items:center;
+      padding:12px 20px;
+      background:linear-gradient(to bottom, #0008, transparent);
+      pointer-events:none;
+    }
+    #title { color:#a78bfa; font-size:1.1rem; font-weight:bold; letter-spacing:0.05em; }
+    #demos {
+      display:flex; gap:8px; pointer-events:all;
+    }
+    .dbtn {
+      background:#ffffff15; border:1px solid #ffffff25;
+      color:#ccc; padding:6px 14px; border-radius:6px;
+      cursor:pointer; font-size:12px; transition:all 0.15s;
+    }
+    .dbtn:hover, .dbtn.active { background:#a78bfa33; border-color:#a78bfa; color:#fff; }
+    #hint {
+      position:fixed; bottom:16px; left:50%; transform:translateX(-50%);
+      color:#ffffff80; font-size:12px; font-family:monospace;
+      background:#0006; padding:8px 20px; border-radius:99px;
+      pointer-events:none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="ui">
+    <div id="title">✦ NovaJS Engine</div>
+    <div id="demos">
+      <button class="dbtn active" onclick="runDemo(0)">Cube</button>
+      <button class="dbtn" onclick="runDemo(1)">Shaders</button>
+      <button class="dbtn" onclick="runDemo(2)">Water</button>
+      <button class="dbtn" onclick="runDemo(3)">Neon</button>
+      <button class="dbtn" onclick="runDemo(4)">Particles</button>
+      <button class="dbtn" onclick="runDemo(5)">Post-FX</button>
+    </div>
+  </div>
+  <div id="hint">Click a demo above to switch scenes</div>
+
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════════════
+// NOVAJS ENGINE — Inline Bundle
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Math ──────────────────────────────────────────────────────────────────────
+class Vector3 {
+  constructor(x=0,y=0,z=0){this.x=x;this.y=y;this.z=z;}
+  set(x,y,z){this.x=x;this.y=y;this.z=z;return this;}
+  setFrom(v){this.x=v.x;this.y=v.y;this.z=v.z;return this;}
+  clone(){return new Vector3(this.x,this.y,this.z);}
+  add(v){return new Vector3(this.x+v.x,this.y+v.y,this.z+v.z);}
+  addSelf(v){this.x+=v.x;this.y+=v.y;this.z+=v.z;return this;}
+  sub(v){return new Vector3(this.x-v.x,this.y-v.y,this.z-v.z);}
+  subSelf(v){this.x-=v.x;this.y-=v.y;this.z-=v.z;return this;}
+  scale(s){return new Vector3(this.x*s,this.y*s,this.z*s);}
+  scaleSelf(s){this.x*=s;this.y*=s;this.z*=s;return this;}
+  dot(v){return this.x*v.x+this.y*v.y+this.z*v.z;}
+  cross(v){return new Vector3(this.y*v.z-this.z*v.y,this.z*v.x-this.x*v.z,this.x*v.y-this.y*v.x);}
+  length(){return Math.sqrt(this.x*this.x+this.y*this.y+this.z*this.z);}
+  normalize(){const l=this.length();return l>0?new Vector3(this.x/l,this.y/l,this.z/l):new Vector3();}
+  normalizeSelf(){const l=this.length();if(l>0){this.x/=l;this.y/=l;this.z/=l;}return this;}
+  negate(){return new Vector3(-this.x,-this.y,-this.z);}
+  distanceTo(v){return this.sub(v).length();}
+}
+
+class Quaternion {
+  constructor(x=0,y=0,z=0,w=1){this.x=x;this.y=y;this.z=z;this.w=w;}
+  copy(q){this.x=q.x;this.y=q.y;this.z=q.z;this.w=q.w;return this;}
+  setFromEuler(x,y,z){
+    const c1=Math.cos(x/2),s1=Math.sin(x/2),c2=Math.cos(y/2),s2=Math.sin(y/2),c3=Math.cos(z/2),s3=Math.sin(z/2);
+    this.x=s1*c2*c3+c1*s2*s3;this.y=c1*s2*c3-s1*c2*s3;
+    this.z=c1*c2*s3-s1*s2*c3;this.w=c1*c2*c3+s1*s2*s3;
+    return this;
+  }
+}
+
+class Matrix4 {
+  constructor(){this.elements=new Float32Array(16);this.identity();}
+  identity(){
+    const e=this.elements;
+    e[0]=1;e[4]=0;e[8]=0; e[12]=0;
+    e[1]=0;e[5]=1;e[9]=0; e[13]=0;
+    e[2]=0;e[6]=0;e[10]=1;e[14]=0;
+    e[3]=0;e[7]=0;e[11]=0;e[15]=1;
+    return this;
+  }
+  clone(){const m=new Matrix4();m.elements.set(this.elements);return m;}
+  copy(m){this.elements.set(m.elements);return this;}
+  multiply(b){
+    const a=this.elements,e=b.elements,r=new Float32Array(16);
+    for(let c=0;c<4;c++) for(let row=0;row<4;row++){
+      let s=0; for(let k=0;k<4;k++) s+=a[row+k*4]*e[k+c*4];
+      r[row+c*4]=s;
+    }
+    const m=new Matrix4();m.elements=r;return m;
+  }
+  static compose(pos,quat,scale){
+    const m=new Matrix4(),e=m.elements;
+    const{x:qx,y:qy,z:qz,w:qw}=quat,{x:sx,y:sy,z:sz}=scale;
+    const x2=qx+qx,y2=qy+qy,z2=qz+qz;
+    const xx=qx*x2,xy=qx*y2,xz=qx*z2,yy=qy*y2,yz=qy*z2,zz=qz*z2,wx=qw*x2,wy=qw*y2,wz=qw*z2;
+    e[0]=(1-(yy+zz))*sx; e[1]=(xy+wz)*sx;   e[2]=(xz-wy)*sx;   e[3]=0;
+    e[4]=(xy-wz)*sy;  e[5]=(1-(xx+zz))*sy;  e[6]=(yz+wx)*sy;   e[7]=0;
+    e[8]=(xz+wy)*sz;  e[9]=(yz-wx)*sz;   e[10]=(1-(xx+yy))*sz; e[11]=0;
+    e[12]=pos.x;e[13]=pos.y;e[14]=pos.z;e[15]=1;
+    return m;
+  }
+  static perspective(fovY,aspect,near,far){
+    const m=new Matrix4(),e=m.elements;
+    e.fill(0);
+    const f=1/Math.tan(fovY/2),ri=1/(near-far);
+    e[0]=f/aspect;e[5]=f;e[10]=(near+far)*ri;e[11]=-1;e[14]=2*near*far*ri;
+    return m;
+  }
+  static lookAt(eye,target,up){
+    const m=new Matrix4(),e=m.elements;
+    let zx=eye.x-target.x,zy=eye.y-target.y,zz=eye.z-target.z;
+    let zl=Math.sqrt(zx*zx+zy*zy+zz*zz);
+    if(zl>0){zx/=zl;zy/=zl;zz/=zl;}
+    let xx=up.y*zz-up.z*zy,xy=up.z*zx-up.x*zz,xz=up.x*zy-up.y*zx;
+    let xl=Math.sqrt(xx*xx+xy*xy+xz*xz);
+    if(xl>0){xx/=xl;xy/=xl;xz/=xl;}
+    const yx=zy*xz-zz*xy,yy=zz*xx-zx*xz,yz=zx*xy-zy*xx;
+    e[0]=xx;e[1]=yx;e[2]=zx;e[3]=0;
+    e[4]=xy;e[5]=yy;e[6]=zy;e[7]=0;
+    e[8]=xz;e[9]=yz;e[10]=zz;e[11]=0;
+    e[12]=-(xx*eye.x+xy*eye.y+xz*eye.z);
+    e[13]=-(yx*eye.x+yy*eye.y+yz*eye.z);
+    e[14]=-(zx*eye.x+zy*eye.y+zz*eye.z);
+    e[15]=1;
+    return m;
+  }
+  normalMatrix(){
+    const e=this.elements,a=e[0],b=e[1],c=e[2],d=e[4],f=e[5],g=e[6],h=e[8],i=e[9],j=e[10];
+    const det=a*(f*j-g*i)-b*(d*j-g*h)+c*(d*i-f*h),inv=det!==0?1/det:0;
+    const o=new Float32Array(9);
+    o[0]=(f*j-g*i)*inv;o[1]=(-b*j+c*i)*inv;o[2]=(b*g-c*f)*inv;
+    o[3]=(-d*j+g*h)*inv;o[4]=(a*j-c*h)*inv;o[5]=(-a*g+c*d)*inv;
+    o[6]=(d*i-f*h)*inv;o[7]=(-a*i+b*h)*inv;o[8]=(a*f-b*d)*inv;
+    return o;
+  }
+}
+
+// ── Object3D ──────────────────────────────────────────────────────────────────
+let _oid=0;
+class Object3D {
+  constructor(){
+    this.id=_oid++;this.type='Object3D';
+    this.position=new Vector3();this.rotation=new Vector3();this.scale=new Vector3(1,1,1);
+    this.quaternion=new Quaternion();
+    this.matrix=new Matrix4();this.worldMatrix=new Matrix4();
+    this.parent=null;this.children=[];this.visible=true;
+    this.isLight=false;this.isMesh=false;this.isParticleSystem=false;
+  }
+  add(c){if(c.parent)c.parent.remove(c);c.parent=this;this.children.push(c);return this;}
+  remove(c){const i=this.children.indexOf(c);if(i!==-1){this.children.splice(i,1);c.parent=null;}return this;}
+  traverse(cb){cb(this);for(const c of this.children)c.traverse(cb);}
+  updateMatrix(){
+    this.quaternion.setFromEuler(this.rotation.x,this.rotation.y,this.rotation.z);
+    this.matrix=Matrix4.compose(this.position,this.quaternion,this.scale);
+  }
+  updateWorldMatrix(){
+    this.updateMatrix();
+    if(this.parent){this.worldMatrix=this.parent.worldMatrix.multiply(this.matrix);}
+    else{this.worldMatrix.copy(this.matrix);}
+  }
+}
+
+// ── Scene ─────────────────────────────────────────────────────────────────────
+class Scene extends Object3D {
+  constructor(){super();this.type='Scene';this.background={r:.05,g:.05,b:.1,a:1};this._lights=[];}
+  add(c){super.add(c);if(c.isLight)this._lights.push(c);return this;}
+  remove(c){super.remove(c);if(c.isLight){const i=this._lights.indexOf(c);if(i!==-1)this._lights.splice(i,1);}return this;}
+  setBackground(r,g,b,a=1){this.background={r,g,b,a};}
+  getRenderList(){const l=[];this.traverse(o=>{if(o.isMesh||o.isParticleSystem)l.push(o);});return l;}
+  getLights(){return this._lights;}
+}
+
+// ── Geometry ──────────────────────────────────────────────────────────────────
+let _gid=0;
+class BufferGeometry {
+  constructor(){this.id=_gid++;this.positions=null;this.normals=null;this.uvs=null;this.indices=null;}
+  setPositions(d){this.positions=d instanceof Float32Array?d:new Float32Array(d);return this;}
+  setNormals(d){this.normals=d instanceof Float32Array?d:new Float32Array(d);return this;}
+  setUVs(d){this.uvs=d instanceof Float32Array?d:new Float32Array(d);return this;}
+  setIndices(d){this.indices=d instanceof Uint16Array?d:new Uint16Array(d);return this;}
+}
+
+class BoxGeometry extends BufferGeometry {
+  constructor(w=1,h=1,d=1){
+    super();
+    const hw=w/2,hh=h/2,hd=d/2;
+    const faces=[
+      {verts:[[hw,hh,-hd],[hw,-hh,-hd],[hw,-hh,hd],[hw,hh,hd]],n:[1,0,0]},
+      {verts:[[-hw,hh,hd],[-hw,-hh,hd],[-hw,-hh,-hd],[-hw,hh,-hd]],n:[-1,0,0]},
+      {verts:[[-hw,hh,hd],[hw,hh,hd],[hw,hh,-hd],[-hw,hh,-hd]],n:[0,1,0]},
+      {verts:[[-hw,-hh,-hd],[hw,-hh,-hd],[hw,-hh,hd],[-hw,-hh,hd]],n:[0,-1,0]},
+      {verts:[[-hw,hh,hd],[-hw,-hh,hd],[hw,-hh,hd],[hw,hh,hd]],n:[0,0,1]},
+      {verts:[[hw,hh,-hd],[hw,-hh,-hd],[-hw,-hh,-hd],[-hw,hh,-hd]],n:[0,0,-1]}
+    ];
+    const uvC=[[0,1],[0,0],[1,0],[1,1]];
+    const pos=[],nor=[],uv=[],idx=[];
+    faces.forEach((face,fi)=>{
+      const base=fi*4;
+      face.verts.forEach((v,vi)=>{pos.push(...v);nor.push(...face.n);uv.push(...uvC[vi]);});
+      idx.push(base,base+1,base+2,base,base+2,base+3);
+    });
+    this.setPositions(pos);this.setNormals(nor);this.setUVs(uv);this.setIndices(idx);
+  }
+}
+
+class PlaneGeometry extends BufferGeometry {
+  constructor(w=1,h=1,sw=1,sh=1){
+    super();
+    const pos=[],nor=[],uv=[],idx=[];
+    const dx=w/sw,dz=h/sh;
+    for(let iz=0;iz<=sh;iz++) for(let ix=0;ix<=sw;ix++){
+      pos.push(ix*dx-w/2,0,iz*dz-h/2);nor.push(0,1,0);uv.push(ix/sw,1-iz/sh);
+    }
+    for(let iz=0;iz<sh;iz++) for(let ix=0;ix<sw;ix++){
+      const a=iz*(sw+1)+ix,b=a+1,c=a+(sw+1),dd=c+1;
+      idx.push(a,c,b,b,c,dd);
+    }
+    this.setPositions(pos);this.setNormals(nor);this.setUVs(uv);this.setIndices(idx);
+  }
+}
+
+class SphereGeometry extends BufferGeometry {
+  constructor(r=1,ws=32,hs=16){
+    super();
+    const pos=[],nor=[],uv=[],idx=[];
+    for(let iy=0;iy<=hs;iy++){
+      const v=iy/hs,phi=v*Math.PI;
+      for(let ix=0;ix<=ws;ix++){
+        const u=ix/ws,theta=u*Math.PI*2;
+        const x=-Math.cos(theta)*Math.sin(phi),y=Math.cos(phi),z=Math.sin(theta)*Math.sin(phi);
+        pos.push(x*r,y*r,z*r);nor.push(x,y,z);uv.push(u,1-v);
+      }
+    }
+    for(let iy=0;iy<hs;iy++) for(let ix=0;ix<ws;ix++){
+      const a=(ws+1)*iy+ix,b=a+ws+1;idx.push(a,b,a+1,b+1,a+1,b);
+    }
+    this.setPositions(pos);this.setNormals(nor);this.setUVs(uv);this.setIndices(idx);
+  }
+}
+
+class TorusGeometry extends BufferGeometry {
+  constructor(R=1,tube=0.4,rs=32,ts=16){
+    super();
+    const pos=[],nor=[],uv=[],idx=[];
+    for(let j=0;j<=rs;j++) for(let i=0;i<=ts;i++){
+      const u=i/ts*Math.PI*2,v=j/rs*Math.PI*2;
+      pos.push((R+tube*Math.cos(v))*Math.cos(u),tube*Math.sin(v),(R+tube*Math.cos(v))*Math.sin(u));
+      nor.push(Math.cos(u)*Math.cos(v),Math.sin(v),Math.sin(u)*Math.cos(v));
+      uv.push(i/ts,j/rs);
+    }
+    for(let j=0;j<rs;j++) for(let i=0;i<ts;i++){
+      const a=(ts+1)*j+i,b=(ts+1)*(j+1)+i;idx.push(a,b,a+1,b+1,a+1,b);
+    }
+    this.setPositions(pos);this.setNormals(nor);this.setUVs(uv);this.setIndices(idx);
+  }
+}
+
+// ── Materials ──────────────────────────────────────────────────────────────────
+let _mid=0;
+class Material{constructor(){this.id=_mid++;this.color={r:1,g:1,b:1};this.opacity=1;this.unlit=false;this.map=null;this.uniforms={};this.vertexShader=null;this.fragmentShader=null;}
+  setColorHex(h){this.color={r:((h>>16)&0xff)/255,g:((h>>8)&0xff)/255,b:(h&0xff)/255};return this;}}
+class BasicMaterial extends Material{
+  constructor(o={}){super();this.type='BasicMaterial';
+    if(o.color!==undefined){if(typeof o.color==='number')this.setColorHex(o.color);else if(Array.isArray(o.color))this.color={r:o.color[0],g:o.color[1],b:o.color[2]};else this.color=o.color;}
+    if(o.opacity!==undefined)this.opacity=o.opacity;if(o.unlit!==undefined)this.unlit=o.unlit;}}
+class ShaderMaterial extends Material{
+  constructor(o={}){super();this.type='ShaderMaterial';this.vertexShader=o.vertexShader||null;
+    this.fragmentShader=o.fragmentShader||null;this.uniforms=o.uniforms||{};this.unlit=true;
+    if(o.color){if(typeof o.color==='number')this.setColorHex(o.color);else this.color=o.color;}}}
+
+// ── Mesh ──────────────────────────────────────────────────────────────────────
+class Mesh extends Object3D{
+  constructor(geo,mat){super();this.type='Mesh';this.isMesh=true;this.geometry=geo;this.material=mat;}
+}
+
+// ── Lights ────────────────────────────────────────────────────────────────────
+class AmbientLight extends Object3D{
+  constructor(color=0xffffff,intensity=0.4){super();this.type='AmbientLight';this.isLight=true;this.intensity=intensity;this.color=this._h(color);}
+  _h(h){return{r:((h>>16)&0xff)/255,g:((h>>8)&0xff)/255,b:(h&0xff)/255};}
+}
+class DirectionalLight extends Object3D{
+  constructor(color=0xffffff,intensity=1){super();this.type='DirectionalLight';this.isLight=true;this.intensity=intensity;this.color=this._h(color);this.target=new Vector3();}
+  _h(h){return{r:((h>>16)&0xff)/255,g:((h>>8)&0xff)/255,b:(h&0xff)/255};}
+  getDirection(){return this.target.sub(this.position).normalizeSelf();}
+}
+class PointLight extends Object3D{
+  constructor(color=0xffffff,intensity=1,distance=100){super();this.type='PointLight';this.isLight=true;this.intensity=intensity;this.distance=distance;this.color=this._h(color);}
+  _h(h){return{r:((h>>16)&0xff)/255,g:((h>>8)&0xff)/255,b:(h&0xff)/255};}
+}
+
+// ── Camera ────────────────────────────────────────────────────────────────────
+class Camera extends Object3D{
+  constructor(){super();this.type='Camera';this.projectionMatrix=new Matrix4();this.viewMatrix=new Matrix4();}
+  updateMatrices(){
+    this.updateMatrix();
+    const e=this.matrix.elements;
+    const fx=-e[8],fy=-e[9],fz=-e[10];
+    const target=new Vector3(this.position.x+fx,this.position.y+fy,this.position.z+fz);
+    const up=new Vector3(e[4],e[5],e[6]);
+    this.viewMatrix=Matrix4.lookAt(this.position,target,up);
+  }
+}
+class PerspectiveCamera extends Camera{
+  constructor(fov=75,aspect=1.6,near=0.1,far=1000){
+    super();this.type='PerspectiveCamera';this.fov=fov;this.aspect=aspect;this.near=near;this.far=far;
+    this._up();
+  }
+  _up(){this.projectionMatrix=Matrix4.perspective(this.fov*Math.PI/180,this.aspect,this.near,this.far);}
+  setAspect(a){this.aspect=a;this._up();}
+  updateMatrices(){this._up();super.updateMatrices();}
+}
+
+// ── ShaderProgram ─────────────────────────────────────────────────────────────
+class ShaderProgram{
+  constructor(gl,vs,fs){this.gl=gl;this._uc={};this._ac={};this.glProgram=this._compile(vs,fs);}
+  _cs(type,src){
+    const gl=this.gl,s=gl.createShader(type);
+    gl.shaderSource(s,src);gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){
+      console.error('[NovaJS Shader Error]',gl.getShaderInfoLog(s));
+      console.error(src.split('\n').map((l,i)=>`${i+1}: ${l}`).join('\n'));
+      return null;
+    }
+    return s;
+  }
+  _compile(vs,fs){
+    const gl=this.gl;
+    const v=this._cs(gl.VERTEX_SHADER,vs),f=this._cs(gl.FRAGMENT_SHADER,fs);
+    if(!v||!f)throw new Error('Shader compile failed');
+    const p=gl.createProgram();
+    gl.attachShader(p,v);gl.attachShader(p,f);gl.linkProgram(p);
+    if(!gl.getProgramParameter(p,gl.LINK_STATUS)){console.error('[NovaJS Link]',gl.getProgramInfoLog(p));throw new Error('Link failed');}
+    gl.deleteShader(v);gl.deleteShader(f);return p;
+  }
+  use(){this.gl.useProgram(this.glProgram);}
+  _l(n){if(this._uc[n]===undefined)this._uc[n]=this.gl.getUniformLocation(this.glProgram,n);return this._uc[n];}
+  setFloat(n,v){const l=this._l(n);if(l!=null)this.gl.uniform1f(l,v);}
+  setInt(n,v){const l=this._l(n);if(l!=null)this.gl.uniform1i(l,v);}
+  setVec2(n,x,y){const l=this._l(n);if(l!=null)this.gl.uniform2f(l,x,y);}
+  setVec3(n,x,y,z){const l=this._l(n);if(l!=null)this.gl.uniform3f(l,x,y,z);}
+  setVec4(n,x,y,z,w){const l=this._l(n);if(l!=null)this.gl.uniform4f(l,x,y,z,w);}
+  setMat3(n,m){const l=this._l(n);if(l!=null)this.gl.uniformMatrix3fv(l,false,m);}
+  setMat4(n,m){const l=this._l(n);if(l!=null)this.gl.uniformMatrix4fv(l,false,m instanceof Float32Array?m:new Float32Array(m));}
+  setUniform(n,v){
+    if(v instanceof Float32Array){
+      if(v.length===16)this.setMat4(n,v);else if(v.length===9)this.setMat3(n,v);
+      else if(v.length===4)this.gl.uniform4fv(this._l(n),v);
+      else if(v.length===3)this.gl.uniform3fv(this._l(n),v);
+      else if(v.length===2)this.gl.uniform2fv(this._l(n),v);
+    } else if(Array.isArray(v)){this.setUniform(n,new Float32Array(v));}
+    else if(typeof v==='number')this.setFloat(n,v);
+    else if(typeof v==='boolean')this.setInt(n,v?1:0);
+  }
+  attribLocation(n){if(this._ac[n]===undefined)this._ac[n]=this.gl.getAttribLocation(this.glProgram,n);return this._ac[n];}
+  destroy(){this.gl.deleteProgram(this.glProgram);}
+}
+
+// ── Default Shaders ────────────────────────────────────────────────────────────
+const DEF_VERT=`#version 300 es
+precision highp float;
+in vec3 position; in vec3 normal; in vec2 uv;
+uniform mat4 modelMatrix; uniform mat4 viewMatrix; uniform mat4 projectionMatrix;
+uniform mat3 normalMatrix;
+out vec3 vWorldPos; out vec3 vNormal; out vec2 vUV;
+void main(){
+  vec4 wp=modelMatrix*vec4(position,1.0);
+  vWorldPos=wp.xyz; vNormal=normalize(normalMatrix*normal); vUV=uv;
+  gl_Position=projectionMatrix*viewMatrix*wp;
+}`;
+const DEF_FRAG=`#version 300 es
+precision highp float;
+in vec3 vWorldPos; in vec3 vNormal; in vec2 vUV;
+uniform vec3 color; uniform float opacity; uniform float time;
+uniform vec3 ambientColor; uniform vec3 dirLightDir; uniform vec3 dirLightColor;
+uniform vec3 pointLightPos[4]; uniform vec3 pointLightColor[4]; uniform int numPointLights;
+out vec4 fragColor;
+void main(){
+  vec3 N=normalize(vNormal);
+  vec3 lighting=ambientColor;
+  vec3 L=normalize(-dirLightDir);
+  lighting+=dirLightColor*max(dot(N,L),0.0);
+  for(int i=0;i<4;i++){
+    if(i>=numPointLights)break;
+    vec3 Lp=pointLightPos[i]-vWorldPos;
+    float dist=length(Lp);
+    float atten=1.0/(1.0+0.09*dist+0.032*dist*dist);
+    lighting+=pointLightColor[i]*max(dot(N,Lp/dist),0.0)*atten;
+  }
+  fragColor=vec4(color*lighting,opacity);
+}`;
+
+// ── WebGL Renderer ─────────────────────────────────────────────────────────────
+class WebGLRenderer{
+  constructor(canvas){
+    const gl=canvas.getContext('webgl2',{antialias:true,depth:true});
+    if(!gl)throw new Error('WebGL2 not supported');
+    this.gl=gl;this.canvas=canvas;
+    this._pc=new Map();this._vc=new Map();
+    gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);
+    gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+    this.resize(canvas.clientWidth,canvas.clientHeight);
+  }
+  resize(w,h){this.canvas.width=w;this.canvas.height=h;this.gl.viewport(0,0,w,h);}
+  _gp(mat){
+    if(!this._pc.has(mat.id)){
+      const v=mat.vertexShader||DEF_VERT,f=mat.fragmentShader||DEF_FRAG;
+      this._pc.set(mat.id,new ShaderProgram(this.gl,v,f));
+    }
+    return this._pc.get(mat.id);
+  }
+  _gv(geo,prog){
+    const key=`${geo.id}_${prog.glProgram}`;
+    if(this._vc.has(key))return this._vc.get(key);
+    const gl=this.gl,vao=gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const ba=(name,data,sz)=>{
+      const loc=prog.attribLocation(name);if(loc<0)return;
+      const buf=gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+      gl.bufferData(gl.ARRAY_BUFFER,data instanceof Float32Array?data:new Float32Array(data),gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,sz,gl.FLOAT,false,0,0);
+    };
+    if(geo.positions)ba('position',geo.positions,3);
+    if(geo.normals)ba('normal',geo.normals,3);
+    if(geo.uvs)ba('uv',geo.uvs,2);
+    if(geo.indices){
+      const ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,geo.indices instanceof Uint16Array?geo.indices:new Uint16Array(geo.indices),gl.STATIC_DRAW);
+    }
+    gl.bindVertexArray(null);this._vc.set(key,vao);return vao;
+  }
+  _ul(prog,lights){
+    prog.setVec3('ambientColor',0.15,0.15,0.15);prog.setVec3('dirLightColor',0,0,0);prog.setInt('numPointLights',0);
+    let np=0;
+    for(const lt of lights){
+      if(lt.type==='AmbientLight')prog.setVec3('ambientColor',lt.color.r*lt.intensity,lt.color.g*lt.intensity,lt.color.b*lt.intensity);
+      else if(lt.type==='DirectionalLight'){const d=lt.getDirection?lt.getDirection():{x:0,y:-1,z:0};prog.setVec3('dirLightDir',d.x,d.y,d.z);prog.setVec3('dirLightColor',lt.color.r*lt.intensity,lt.color.g*lt.intensity,lt.color.b*lt.intensity);}
+      else if(lt.type==='PointLight'&&np<4){
+        this.gl.uniform3f(this.gl.getUniformLocation(prog.glProgram,`pointLightPos[${np}]`),lt.position.x,lt.position.y,lt.position.z);
+        this.gl.uniform3f(this.gl.getUniformLocation(prog.glProgram,`pointLightColor[${np}]`),lt.color.r*lt.intensity,lt.color.g*lt.intensity,lt.color.b*lt.intensity);
+        np++;
+      }
+    }
+    prog.setInt('numPointLights',np);
+  }
+  _rm(mesh,camera,lights,t){
+    if(!mesh.visible||!mesh.geometry||!mesh.material)return;
+    const gl=this.gl,prog=this._gp(mesh.material);
+    prog.use();
+    mesh.updateWorldMatrix();camera.updateMatrices();
+    prog.setMat4('modelMatrix',mesh.worldMatrix.elements);
+    prog.setMat4('viewMatrix',camera.viewMatrix.elements);
+    prog.setMat4('projectionMatrix',camera.projectionMatrix.elements);
+    prog.setMat3('normalMatrix',mesh.worldMatrix.normalMatrix());
+    prog.setVec3('cameraPos',camera.position.x,camera.position.y,camera.position.z);
+    prog.setFloat('time',t);
+    const c=mesh.material.color||{r:1,g:1,b:1};
+    prog.setVec3('color',c.r,c.g,c.b);
+    prog.setFloat('opacity',mesh.material.opacity??1);
+    if(mesh.material.uniforms)for(const[n,v]of Object.entries(mesh.material.uniforms))prog.setUniform(n,typeof v==='object'&&v.value!==undefined?v.value:v);
+    if(!mesh.material.unlit)this._ul(prog,lights);
+    else{prog.setVec3('ambientColor',1,1,1);prog.setVec3('dirLightColor',0,0,0);prog.setInt('numPointLights',0);}
+    const vao=this._gv(mesh.geometry,prog);
+    gl.bindVertexArray(vao);
+    if(mesh.geometry.indices&&mesh.geometry.indices.length>0)gl.drawElements(gl.TRIANGLES,mesh.geometry.indices.length,gl.UNSIGNED_SHORT,0);
+    else if(mesh.geometry.positions)gl.drawArrays(gl.TRIANGLES,0,mesh.geometry.positions.length/3);
+    gl.bindVertexArray(null);
+  }
+  render(scene,camera,t=0){
+    const gl=this.gl,bg=scene.background;
+    gl.clearColor(bg.r,bg.g,bg.b,bg.a);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    camera.updateMatrices();
+    const rl=scene.getRenderList(),lights=scene.getLights();
+    for(const obj of rl){if(obj.isMesh)this._rm(obj,camera,lights,t);else if(obj.isParticleSystem)obj.render(gl,camera,t);}
+  }
+  destroy(){for(const p of this._pc.values())p.destroy();this._pc.clear();}
+}
+
+// ── Engine ────────────────────────────────────────────────────────────────────
+class Engine{
+  constructor(canvas){
+    if(typeof canvas==='string')canvas=document.getElementById(canvas);
+    this.canvas=canvas;this.renderer=new WebGLRenderer(canvas);
+    this._running=false;this._lastTime=0;this._totalTime=0;
+    this._onResize=()=>{
+      this.renderer.resize(window.innerWidth,window.innerHeight);
+      if(this._camera?.setAspect)this._camera.setAspect(window.innerWidth/window.innerHeight);
+    };
+    window.addEventListener('resize',this._onResize);this._onResize();
+  }
+  start(scene,camera,update=()=>{}){
+    this._scene=scene;this._camera=camera;this._update=update;this._running=true;
+    const loop=(ts)=>{
+      if(!this._running)return;
+      const delta=Math.min((ts-this._lastTime)/1000,0.1);
+      this._lastTime=ts;this._totalTime+=delta;
+      this._update(delta,this._totalTime);
+      this.renderer.render(scene,camera,this._totalTime);
+      this._rafId=requestAnimationFrame(loop);
+    };
+    this._lastTime=performance.now();this._rafId=requestAnimationFrame(loop);
+  }
+  stop(){this._running=false;if(this._rafId)cancelAnimationFrame(this._rafId);}
+  destroy(){this.stop();window.removeEventListener('resize',this._onResize);this.renderer.destroy();}
+}
+
+// ── Particle System ───────────────────────────────────────────────────────────
+const PS_VERT=`#version 300 es
+precision highp float;
+in vec3 aPosition; in float aSize; in float aLife; in vec3 aColor;
+uniform mat4 viewMatrix; uniform mat4 projectionMatrix;
+out float vLife; out vec3 vColor;
+void main(){
+  vLife=aLife; vColor=aColor;
+  vec4 vp=viewMatrix*vec4(aPosition,1.0);
+  gl_PointSize=aSize*(250.0/-vp.z);
+  gl_Position=projectionMatrix*vp;
+}`;
+const PS_FRAG=`#version 300 es
+precision highp float;
+in float vLife; in vec3 vColor; out vec4 fragColor;
+void main(){
+  vec2 c=gl_PointCoord-0.5; if(length(c)>0.5)discard;
+  float a=(1.0-length(c)*2.0)*vLife;
+  fragColor=vec4(vColor,a);
+}`;
+class ParticleSystem extends Object3D{
+  constructor(o={}){
+    super();this.isParticleSystem=true;this.maxParticles=o.maxParticles??500;
+    this.emitRate=o.emitRate??60;this.emitterType=o.emitterType||'fire';this.emitting=true;
+    this._particles=[];this._toEmit=0;this._prog=null;this._vao=null;this._bufs=null;
+    for(let i=0;i<this.maxParticles;i++)this._particles.push({pos:new Vector3(),vel:new Vector3(),life:0,maxLife:1,size:10,color:[1,.5,0],active:false});
+  }
+  _spawn(p){
+    const t=this.emitterType,o=this.position;
+    p.active=true;p.maxLife=.5+Math.random()*1.5;p.life=1;
+    const sp=.3;p.pos.set(o.x+(Math.random()-.5)*sp,o.y,o.z+(Math.random()-.5)*sp);
+    if(t==='fire'){p.vel.set((Math.random()-.5)*.5,1.5+Math.random()*2,(Math.random()-.5)*.5);p.size=20+Math.random()*30;p.color=[1,.3+Math.random()*.4,0];}
+    else if(t==='smoke'){p.vel.set((Math.random()-.5)*.3,.5+Math.random(),(Math.random()-.5)*.3);p.size=30+Math.random()*50;p.color=[.5,.5,.5];p.maxLife=2+Math.random();}
+    else if(t==='sparks'){const a=Math.random()*Math.PI*2,s=2+Math.random()*4;p.vel.set(Math.cos(a)*s,3+Math.random()*3,Math.sin(a)*s);p.size=4+Math.random()*8;p.color=[1,.9,.2];p.maxLife=.3+Math.random()*.5;}
+    else if(t==='snow'){p.pos.set(o.x+(Math.random()-.5)*12,o.y+6,o.z+(Math.random()-.5)*12);p.vel.set((Math.random()-.5)*.3,-.5-Math.random(),(Math.random()-.5)*.3);p.size=5+Math.random()*10;p.color=[.9,.9,1];p.maxLife=5+Math.random()*3;}
+  }
+  update(delta){
+    if(this.emitting){this._toEmit+=this.emitRate*delta;while(this._toEmit>=1){const d=this._particles.find(p=>!p.active);if(d)this._spawn(d);this._toEmit-=1;}}
+    for(const p of this._particles){
+      if(!p.active)continue;p.life-=delta/p.maxLife;if(p.life<=0){p.active=false;continue;}
+      if(this.emitterType==='sparks')p.vel.y-=9.81*delta;
+      p.pos.x+=p.vel.x*delta;p.pos.y+=p.vel.y*delta;p.pos.z+=p.vel.z*delta;
+      if(this.emitterType==='fire'){p.color[1]=p.life*.4;p.size=15+p.life*30;}
+    }
+  }
+  render(gl,camera,time){
+    const active=this._particles.filter(p=>p.active);if(!active.length)return;
+    if(!this._prog)this._init(gl);
+    const n=active.length,pa=new Float32Array(n*3),sa=new Float32Array(n),la=new Float32Array(n),ca=new Float32Array(n*3);
+    active.forEach((p,i)=>{pa[i*3]=p.pos.x;pa[i*3+1]=p.pos.y;pa[i*3+2]=p.pos.z;sa[i]=p.size;la[i]=p.life;ca[i*3]=p.color[0];ca[i*3+1]=p.color[1];ca[i*3+2]=p.color[2];});
+    const prog=this._prog;prog.use();
+    prog.setMat4('viewMatrix',camera.viewMatrix.elements);prog.setMat4('projectionMatrix',camera.projectionMatrix.elements);
+    gl.bindVertexArray(this._vao);
+    const up=(buf,data)=>{gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_DRAW);};
+    up(this._bufs.pos,pa);up(this._bufs.size,sa);up(this._bufs.life,la);up(this._bufs.color,ca);
+    gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);gl.depthMask(false);
+    gl.drawArrays(gl.POINTS,0,n);
+    gl.depthMask(true);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.bindVertexArray(null);
+  }
+  _init(gl){
+    this._prog=new ShaderProgram(gl,PS_VERT,PS_FRAG);this._vao=gl.createVertexArray();
+    gl.bindVertexArray(this._vao);
+    const prog=this._prog,mk=()=>gl.createBuffer();
+    const bf=(buf,name,sz)=>{const loc=prog.attribLocation(name);if(loc<0)return;gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(this.maxParticles*sz),gl.DYNAMIC_DRAW);gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,sz,gl.FLOAT,false,0,0);};
+    const pb=mk(),sb=mk(),lb=mk(),cb=mk();bf(pb,'aPosition',3);bf(sb,'aSize',1);bf(lb,'aLife',1);bf(cb,'aColor',3);
+    this._bufs={pos:pb,size:sb,life:lb,color:cb};gl.bindVertexArray(null);
+  }
+}
+
+// ── Post Processor ────────────────────────────────────────────────────────────
+const QUAD_VERT=`#version 300 es
+precision highp float;
+in vec2 aPosition; out vec2 vUV;
+void main(){vUV=aPosition*.5+.5;gl_Position=vec4(aPosition,0,1);}`;
+const PP_EFFECTS={
+  passthrough:`#version 300 es
+precision highp float;in vec2 vUV;uniform sampler2D uScene;out vec4 f;void main(){f=texture(uScene,vUV);}`,
+  crt:`#version 300 es
+precision highp float;in vec2 vUV;uniform sampler2D uScene;uniform float uTime;uniform vec2 uResolution;out vec4 f;
+void main(){
+  vec2 uv=vUV; vec2 cc=uv-.5; float d=dot(cc,cc); uv+=cc*d*.18;
+  if(uv.x<0.||uv.x>1.||uv.y<0.||uv.y>1.){f=vec4(0,0,0,1);return;}
+  vec3 col=texture(uScene,uv).rgb;
+  float scan=sin(uv.y*uResolution.y*3.14159)*.5+.5; col*=mix(.65,1.,scan);
+  col.r=texture(uScene,uv+vec2(.002,0)).r; col.b=texture(uScene,uv-vec2(.002,0)).b;
+  vec2 vig=uv-.5; col*=1.-dot(vig,vig)*2.2; f=vec4(col*1.1,1);
+}`,
+  bloom:`#version 300 es
+precision highp float;in vec2 vUV;uniform sampler2D uScene;uniform vec2 uResolution;out vec4 f;
+void main(){
+  vec3 col=texture(uScene,vUV).rgb,bloom=vec3(0);
+  vec2 px=1./uResolution;
+  for(int x=-3;x<=3;x++)for(int y=-3;y<=3;y++){
+    vec3 s=texture(uScene,vUV+vec2(float(x),float(y))*px*2.).rgb;
+    bloom+=s*max(0.,dot(s,vec3(.299,.587,.114))-.65);
+  }
+  f=vec4(col+bloom/49.*3.,1.);
+}`,
+  chromaticAberration:`#version 300 es
+precision highp float;in vec2 vUV;uniform sampler2D uScene;out vec4 f;
+void main(){vec2 d=vUV-.5;float s=.007;f=vec4(texture(uScene,vUV+d*s).r,texture(uScene,vUV).g,texture(uScene,vUV-d*s).b,1.);}`,
+  vignette:`#version 300 es
+precision highp float;in vec2 vUV;uniform sampler2D uScene;out vec4 f;
+void main(){vec4 c=texture(uScene,vUV);vec2 u=vUV-.5;f=vec4(c.rgb*(1.-dot(u,u)*2.8),c.a);}`,
+  pixelate:`#version 300 es
+precision highp float;in vec2 vUV;uniform sampler2D uScene;uniform vec2 uResolution;out vec4 f;
+void main(){float sz=5.;vec2 uv=floor(vUV*uResolution/sz)*sz/uResolution;f=texture(uScene,uv);}`,
+  colorGrade:`#version 300 es
+precision highp float;in vec2 vUV;uniform sampler2D uScene;out vec4 f;
+void main(){vec3 c=texture(uScene,vUV).rgb;c.r=pow(c.r,.9)*1.1;c.g=pow(c.g,1.05);c.b=pow(c.b,.85)*.9;c=c*c*(3.-2.*c);f=vec4(c,1.);}`
+};
+class PostProcessor{
+  constructor(gl,w,h){this.gl=gl;this.w=w;this.h=h;this._effects=[];this._initFBO();this._initQuad();}
+  _initFBO(){
+    const gl=this.gl;
+    this._fbo=gl.createFramebuffer();this._tex=gl.createTexture();this._rbo=gl.createRenderbuffer();
+    gl.bindTexture(gl.TEXTURE_2D,this._tex);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,this.w,this.h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+    gl.bindRenderbuffer(gl.RENDERBUFFER,this._rbo);gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT16,this.w,this.h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,this._fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,this._tex,0);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,this._rbo);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  }
+  _initQuad(){
+    const gl=this.gl;
+    this._qvao=gl.createVertexArray();this._qbuf=gl.createBuffer();
+    gl.bindVertexArray(this._qvao);gl.bindBuffer(gl.ARRAY_BUFFER,this._qbuf);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,-1,1,1,-1,1]),gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+  }
+  addEffect(name,frag=null){
+    const fs=frag||PP_EFFECTS[name]||PP_EFFECTS.passthrough;
+    this._effects.push({name,prog:new ShaderProgram(this.gl,QUAD_VERT,fs)});return this;
+  }
+  begin(){this.gl.bindFramebuffer(this.gl.FRAMEBUFFER,this._fbo);}
+  end(t=0){
+    const gl=this.gl;gl.bindFramebuffer(gl.FRAMEBUFFER,null);if(!this._effects.length)return;
+    gl.disable(gl.DEPTH_TEST);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,this._tex);
+    for(const{prog}of this._effects){
+      prog.use();prog.setInt('uScene',0);prog.setFloat('uTime',t);prog.setVec2('uResolution',this.w,this.h);
+      gl.bindVertexArray(this._qvao);
+      const loc=prog.attribLocation('aPosition');
+      if(loc>=0){gl.bindBuffer(gl.ARRAY_BUFFER,this._qbuf);gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);}
+      gl.drawArrays(gl.TRIANGLES,0,6);
+    }
+    gl.enable(gl.DEPTH_TEST);gl.bindVertexArray(null);
+  }
+  resize(w,h){
+    this.w=w;this.h=h;const gl=this.gl;
+    gl.bindTexture(gl.TEXTURE_2D,this._tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+    gl.bindRenderbuffer(gl.RENDERBUFFER,this._rbo);gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT16,w,h);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DEMO RUNNER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('c');
+let engine = null;
+
+function resetEngine() {
+  if (engine) engine.destroy();
+  engine = new Engine(canvas);
+  document.querySelectorAll('.dbtn').forEach(b => b.classList.remove('active'));
+}
+
+// ── Shared shaders ────────────────────────────────────────────────────────────
+const STD_VERT = `#version 300 es
+precision highp float;
+in vec3 position; in vec3 normal; in vec2 uv;
+uniform mat4 modelMatrix; uniform mat4 viewMatrix; uniform mat4 projectionMatrix;
+uniform mat3 normalMatrix; uniform float time;
+out vec3 vNormal; out vec3 vWorldPos; out vec2 vUV;
+void main(){
+  vec4 wp=modelMatrix*vec4(position,1.0);
+  vWorldPos=wp.xyz; vNormal=normalize(normalMatrix*normal); vUV=uv;
+  gl_Position=projectionMatrix*viewMatrix*wp;
+}`;
+
+// ── Demo 0: Spinning Cube ─────────────────────────────────────────────────────
+function demo0() {
+  resetEngine(); document.querySelectorAll('.dbtn')[0].classList.add('active');
+  const scene = new Scene(); scene.setBackground(.04,.04,.10,1);
+  const cam = new PerspectiveCamera(60, innerWidth/innerHeight, .1, 500);
+  cam.position.set(0,2,6);
+
+  scene.add(new AmbientLight(0x223366,.5));
+  const dir = new DirectionalLight(0xffffff,.9); dir.position.set(5,8,5); scene.add(dir);
+  const p1 = new PointLight(0xff4466,2.5,15); p1.position.set(-3,3,3); scene.add(p1);
+  const p2 = new PointLight(0x44aaff,2.5,15); p2.position.set(3,3,-2); scene.add(p2);
+
+  const cube = new Mesh(new BoxGeometry(2,2,2), new BasicMaterial({color:{r:.6,g:.4,b:.9}}));
+  scene.add(cube);
+  const floor = new Mesh(new PlaneGeometry(20,20,8,8), new BasicMaterial({color:{r:.1,g:.1,b:.15}}));
+  floor.position.y=-1.5; scene.add(floor);
+
+  // Smaller corner cubes
+  for(let i=0;i<4;i++){
+    const c=new Mesh(new BoxGeometry(.5,.5,.5),new BasicMaterial({color:{r:i*.2+.2,g:.3,b:.8-i*.1}}));
+    c.position.set(Math.cos(i*Math.PI/2)*3,.5,Math.sin(i*Math.PI/2)*3);
+    scene.add(c);
+  }
+
+  let angle=0;
+  engine.start(scene, cam, (delta,time) => {
+    cube.rotation.y+=delta*.8; cube.rotation.x+=delta*.3;
+    angle+=delta*.25; cam.position.x=Math.sin(angle)*6; cam.position.z=Math.cos(angle)*6; cam.rotation.y=-angle;
+    p1.position.x=Math.sin(time*1.2)*4; p1.position.z=Math.cos(time*.9)*4;
+    p2.position.x=Math.cos(time*.7)*4; p2.position.z=Math.sin(time*1.1)*4;
+  });
+}
+
+// ── Demo 1: Shader Showcase ───────────────────────────────────────────────────
+function demo1() {
+  resetEngine(); document.querySelectorAll('.dbtn')[1].classList.add('active');
+  const scene = new Scene(); scene.setBackground(.02,.02,.05,1);
+  const cam = new PerspectiveCamera(65,innerWidth/innerHeight,.1,100); cam.position.set(0,0,6);
+  scene.add(new AmbientLight(0x111133,.3));
+
+  // Neon torus
+  const neonFrag=`#version 300 es
+precision highp float;
+in vec3 vNormal; in vec3 vWorldPos; in vec2 vUV;
+uniform float time; uniform vec3 cameraPos;
+out vec4 fragColor;
+void main(){
+  vec3 N=normalize(vNormal); vec3 V=normalize(cameraPos-vWorldPos);
+  float rim=pow(1.-max(dot(N,V),0.),.5+abs(sin(time))*2.);
+  vec3 a=vec3(0.,1.,1.),b=vec3(1.,0.,1.);
+  vec3 col=mix(a,b,sin(time*.8+vUV.y*6.28)*.5+.5);
+  fragColor=vec4(col*rim+col*.1,1.);
+}`;
+
+  // Glitch cube frag
+  const glitchFrag=`#version 300 es
+precision highp float;
+in vec3 vNormal; in vec2 vUV; in vec3 vWorldPos;
+uniform float time;
+out vec4 fragColor;
+float hash(float n){return fract(sin(n)*43758.5);}
+void main(){
+  float gt=floor(time*8.); float go=step(.88,hash(gt));
+  float t=time*.5; vec3 col=vec3(sin(t)*.5+.5,sin(t+2.09)*.5+.5,sin(t+4.19)*.5+.5);
+  float scan=sin(vWorldPos.y*50.-time*10.)*.5+.5; col*=.5+scan*.5;
+  float edge=pow(1.-abs(dot(normalize(vNormal),vec3(0,0,1))),3.);col+=col*edge*2.;
+  float glitch=go*hash(gt+floor(vUV.y*20.)*.1)*.4;
+  col=mix(col,col.gbr,glitch);
+  fragColor=vec4(col,1.);
+}`;
+
+  const torus = new Mesh(new TorusGeometry(1.8,.55,48,24),
+    new ShaderMaterial({vertexShader:STD_VERT,fragmentShader:neonFrag}));
+  scene.add(torus);
+
+  const cube = new Mesh(new BoxGeometry(1.2,1.2,1.2),
+    new ShaderMaterial({vertexShader:STD_VERT,fragmentShader:glitchFrag}));
+  cube.position.set(3.5,0,0); scene.add(cube);
+  cube.position.set(-3.5,0,0); scene.add(new Mesh(new SphereGeometry(.9,32,16), new ShaderMaterial({vertexShader:STD_VERT,fragmentShader:glitchFrag})));
+
+  engine.start(scene, cam, (delta,time) => {
+    torus.rotation.y+=delta*.5; torus.rotation.z+=delta*.2;
+    cube.rotation.y+=delta*.9; cube.rotation.x+=delta*.4;
+    torus.material.uniforms['cameraPos']=[cam.position.x,cam.position.y,cam.position.z];
+  });
+}
+
+// ── Demo 2: Water ─────────────────────────────────────────────────────────────
+function demo2() {
+  resetEngine(); document.querySelectorAll('.dbtn')[2].classList.add('active');
+  const scene = new Scene(); scene.setBackground(.4,.6,.85,1);
+  const cam = new PerspectiveCamera(65,innerWidth/innerHeight,.1,300); cam.position.set(0,5,12); cam.rotation.x=-.35;
+  scene.add(new AmbientLight(0xadd8e6,.6)); const sun=new DirectionalLight(0xfff5cc,1.2); sun.position.set(50,80,20); scene.add(sun);
+
+  const WV=`#version 300 es
+precision highp float;
+in vec3 position; in vec3 normal; in vec2 uv;
+uniform mat4 modelMatrix; uniform mat4 viewMatrix; uniform mat4 projectionMatrix; uniform float time;
+out vec2 vUV; out vec3 vNormal; out vec3 vWorldPos;
+float wave(vec2 p,float fr,float amp,float sp,float dir){return amp*sin(dot(p,vec2(cos(dir),sin(dir)))*fr+time*sp);}
+void main(){
+  vec3 pos=position;
+  pos.y+=wave(pos.xz,1.5,.12,1.2,0.)+wave(pos.xz,2.3,.07,.9,1.1)+wave(pos.xz,4.1,.03,2.,2.4)+wave(pos.xz,.7,.18,.6,3.7);
+  vUV=uv; vec4 wp=modelMatrix*vec4(pos,1.); vWorldPos=wp.xyz;
+  float dx=wave(pos.xz+vec2(.01,0),1.5,.12,1.2,0.)-wave(pos.xz,1.5,.12,1.2,0.);
+  float dz=wave(pos.xz+vec2(0,.01),1.5,.12,1.2,0.)-wave(pos.xz,1.5,.12,1.2,0.);
+  vNormal=normalize(vec3(-dx*100.,1.,-dz*100.));
+  gl_Position=projectionMatrix*viewMatrix*wp;
+}`;
+  const WF=`#version 300 es
+precision highp float;
+in vec2 vUV; in vec3 vNormal; in vec3 vWorldPos;
+uniform float time; uniform vec3 cameraPos;
+out vec4 fragColor;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5);}
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
+void main(){
+  vec3 N=normalize(vNormal); vec3 V=normalize(cameraPos-vWorldPos);
+  float fresnel=pow(1.-max(dot(N,V),0.),3.);
+  vec3 col=mix(vec3(.02,.12,.28),vec3(.08,.38,.52),fresnel);
+  col=mix(col,vec3(.4,.7,1.),fresnel*.6);
+  float foam=noise(vUV*8.+vec2(time*.3))*noise(vUV*4.-vec2(time*.15));
+  col=mix(col,vec3(1.),smoothstep(.6,.85,foam)*.7);
+  vec3 L=normalize(vec3(1,1,0)); vec3 R=reflect(-L,N);
+  col+=vec3(1.,.95,.8)*pow(max(dot(R,V),0.),80.)*2.;
+  fragColor=vec4(col,.9);
+}`;
+
+  const water = new Mesh(new PlaneGeometry(40,40,80,80), new ShaderMaterial({vertexShader:WV,fragmentShader:WF}));
+  scene.add(water);
+  for(let i=0;i<6;i++){
+    const r=new Mesh(new SphereGeometry(.3+Math.random()*.4,8,6),new BasicMaterial({color:{r:.35,g:.33,b:.3}}));
+    r.position.set((Math.random()-.5)*18,-.2+Math.random()*.3,(Math.random()-.5)*18); scene.add(r);
+  }
+
+  let angle=0;
+  engine.start(scene,cam,(delta,time)=>{
+    angle+=delta*.12; cam.position.x=Math.sin(angle)*12; cam.position.z=Math.cos(angle)*12; cam.rotation.y=-angle;
+    water.material.uniforms['cameraPos']=[cam.position.x,cam.position.y,cam.position.z];
+  });
+}
+
+// ── Demo 3: Neon Cyberpunk ────────────────────────────────────────────────────
+function demo3() {
+  resetEngine(); document.querySelectorAll('.dbtn')[3].classList.add('active');
+  const scene = new Scene(); scene.setBackground(.01,.0,.03,1);
+  const cam = new PerspectiveCamera(60,innerWidth/innerHeight,.1,200); cam.position.set(0,3,12); cam.rotation.x=-.2;
+  scene.add(new AmbientLight(0x110022,.3));
+  const p1=new PointLight(0xff00ff,3,20); p1.position.set(-5,2,0); scene.add(p1);
+  const p2=new PointLight(0x00ffff,3,20); p2.position.set(5,2,0);  scene.add(p2);
+
+  const GRID_F=`#version 300 es
+precision highp float;in vec2 vUV;in vec3 vWorldPos;uniform float time;out vec4 f;
+void main(){
+  vec2 g=abs(fract(vUV*20.-.5)-.5)/fwidth(vUV*20.);
+  float line=min(g.x,g.y),glow=1.-min(line,1.);
+  float t=time*.3; vec3 a=vec3(0.,.8,1.),b=vec3(1.,0.,.8);
+  vec3 col=mix(a,b,sin(t+vUV.x*3.14)*.5+.5);
+  float dist=length(vUV-.5); float fog=1.-smoothstep(.3,.7,dist);
+  f=vec4(col*glow*fog*2.,glow*fog*.9);
+}`;
+  const NEON_F=`#version 300 es
+precision highp float;in vec3 vNormal;in vec3 vWorldPos;in vec2 vUV;uniform float time;uniform vec3 cameraPos;out vec4 f;
+void main(){
+  vec3 N=normalize(vNormal),V=normalize(cameraPos-vWorldPos);
+  float rim=pow(1.-max(dot(N,V),0.),2.);
+  float t=time; vec3 c1=vec3(0.,1.,1.),c2=vec3(1.,0.,1.);
+  vec3 col=mix(c1,c2,sin(vUV.y*12.566-t*2.)*.5+.5);col*=rim;col+=col*rim*3.;
+  col+=c1*(sin(time*4.)*.5+.5)*rim*.5; f=vec4(col,1.);
+}`;
+  const GLITCH_F=`#version 300 es
+precision highp float;in vec3 vNormal;in vec2 vUV;in vec3 vWorldPos;uniform float time;out vec4 f;
+float hash(float n){return fract(sin(n)*43758.5);}
+void main(){
+  float t=time*.5;vec3 col=vec3(sin(t)*.5+.5,sin(t+2.09)*.5+.5,sin(t+4.19)*.5+.5);
+  float scan=sin(vWorldPos.y*50.-time*10.)*.5+.5;col*=.5+scan*.5;
+  float edge=pow(1.-abs(dot(normalize(vNormal),vec3(0,0,1))),3.);col+=col*edge*2.;
+  float go=step(.9,hash(floor(time*8.)));col=mix(col,col.gbr,go*hash(floor(time*8.)+floor(vUV.y*20.))*.3);
+  f=vec4(col,1.);
+}`;
+
+  const floor=new Mesh(new PlaneGeometry(30,30,1,1),new ShaderMaterial({vertexShader:STD_VERT,fragmentShader:GRID_F})); scene.add(floor);
+  const cube=new Mesh(new BoxGeometry(2,2,2),new ShaderMaterial({vertexShader:STD_VERT,fragmentShader:GLITCH_F})); cube.position.set(-4,1,0); scene.add(cube);
+  const sphere=new Mesh(new SphereGeometry(1.2,48,32),new ShaderMaterial({vertexShader:STD_VERT,fragmentShader:NEON_F})); sphere.position.set(0,1.2,0); scene.add(sphere);
+  const torus=new Mesh(new TorusGeometry(1,.3,32,16),new ShaderMaterial({vertexShader:STD_VERT,fragmentShader:GLITCH_F})); torus.position.set(4,1,0); scene.add(torus);
+
+  let angle=0;
+  engine.start(scene,cam,(delta,time)=>{
+    angle+=delta*.2; cam.position.x=Math.sin(angle)*12; cam.position.z=Math.cos(angle)*12; cam.rotation.y=-angle;
+    cube.rotation.y+=delta*.8; cube.rotation.x+=delta*.3;
+    sphere.rotation.y-=delta*.6; torus.rotation.x+=delta*.7; torus.rotation.z+=delta*.4;
+    p1.position.x=Math.sin(time*.7)*6; p2.position.x=Math.cos(time*.5)*6;
+    sphere.material.uniforms['cameraPos']=[cam.position.x,cam.position.y,cam.position.z];
+  });
+}
+
+// ── Demo 4: Particles ─────────────────────────────────────────────────────────
+function demo4() {
+  resetEngine(); document.querySelectorAll('.dbtn')[4].classList.add('active');
+  const scene=new Scene(); scene.setBackground(.02,.02,.04,1);
+  const cam=new PerspectiveCamera(65,innerWidth/innerHeight,.1,200); cam.position.set(0,3,10); cam.rotation.x=-.2;
+  scene.add(new AmbientLight(0x111133,.4));
+  const pt=new PointLight(0xff6600,3,15); pt.position.set(0,1,0); scene.add(pt);
+  const floor=new Mesh(new PlaneGeometry(20,20),new BasicMaterial({color:{r:.06,g:.06,b:.1}})); scene.add(floor);
+
+  const systems=[];
+  for(let i=-2;i<=2;i+=2){
+    const ps=new ParticleSystem({maxParticles:600,emitRate:80,emitterType:'fire'});
+    ps.position.set(i,.2,0); scene.add(ps); systems.push(ps);
+  }
+
+  // Switch buttons
+  document.getElementById('hint').innerHTML =
+    '<button onclick="window._psType(\'fire\')" style="background:#f503;border:1px solid #f97;color:#fff;padding:4px 12px;border-radius:4px;cursor:pointer;margin:0 4px">🔥 Fire</button>' +
+    '<button onclick="window._psType(\'smoke\')" style="background:#9993;border:1px solid #999;color:#fff;padding:4px 12px;border-radius:4px;cursor:pointer;margin:0 4px">💨 Smoke</button>' +
+    '<button onclick="window._psType(\'sparks\')" style="background:#ff03;border:1px solid #ff0;color:#fff;padding:4px 12px;border-radius:4px;cursor:pointer;margin:0 4px">✨ Sparks</button>' +
+    '<button onclick="window._psType(\'snow\')" style="background:#adf3;border:1px solid #adf;color:#fff;padding:4px 12px;border-radius:4px;cursor:pointer;margin:0 4px">❄️ Snow</button>';
+  window._psType = (t) => { systems.forEach(s=>s.emitterType=t); };
+
+  let angle=0;
+  engine.start(scene,cam,(delta,time)=>{
+    systems.forEach(s=>s.update(delta));
+    angle+=delta*.2; cam.position.x=Math.sin(angle)*10; cam.position.z=Math.cos(angle)*10; cam.rotation.y=-angle;
+    pt.position.x=Math.sin(time*2)*1.5; pt.position.z=Math.cos(time*2)*1.5;
+  });
+}
+
+// ── Demo 5: Post-processing ───────────────────────────────────────────────────
+function demo5() {
+  resetEngine(); document.querySelectorAll('.dbtn')[5].classList.add('active');
+  const scene=new Scene(); scene.setBackground(.04,.04,.10,1);
+  const cam=new PerspectiveCamera(60,innerWidth/innerHeight,.1,300); cam.position.set(0,3,10);
+  scene.add(new AmbientLight(0x334477,.6)); const dir=new DirectionalLight(0xffffff,1); dir.position.set(5,10,8); scene.add(dir);
+  const p1=new PointLight(0xff4488,2,20); p1.position.set(-4,3,2); scene.add(p1);
+  const p2=new PointLight(0x44aaff,2,20); p2.position.set(4,3,2); scene.add(p2);
+
+  const pp=new PostProcessor(engine.renderer.gl,innerWidth,innerHeight);
+  pp.addEffect('crt');
+  window.addEventListener('resize',()=>pp.resize(innerWidth,innerHeight));
+
+  const meshes=[];
+  const geos=[new BoxGeometry(),new SphereGeometry(.6,16,12),new TorusGeometry(.6,.2,16,12)];
+  const cols=[{r:.8,g:.3,b:.3},{r:.3,g:.7,b:.4},{r:.4,g:.4,b:.9},{r:.9,g:.7,b:.2},{r:.7,g:.3,b:.8}];
+  for(let i=0;i<9;i++){
+    const m=new Mesh(geos[i%3],new BasicMaterial({color:cols[i%5]}));
+    m.position.set((i%3-1)*3.5,Math.floor(i/3)*3-1.5,(Math.random()-.5)*2);
+    m.rotation.set(Math.random()*6.28,Math.random()*6.28,0);
+    scene.add(m);meshes.push(m);
+  }
+  const floor=new Mesh(new PlaneGeometry(30,20),new BasicMaterial({color:{r:.08,g:.08,b:.14}})); floor.position.y=-2; scene.add(floor);
+
+  document.getElementById('hint').innerHTML =
+    ['None','📺 CRT','✨ Bloom','🌈 Aberration','🔲 Vignette','🟦 Pixelate','🎨 Color Grade']
+    .map((lbl,i)=>`<button onclick="window._ppFX('${['passthrough','crt','bloom','chromaticAberration','vignette','pixelate','colorGrade'][i]}')" style="background:#0f02;border:1px solid #0f07;color:#0f0;padding:4px 10px;border-radius:4px;cursor:pointer;margin:2px;font-size:11px">${lbl}</button>`)
+    .join('');
+  window._ppFX = (name) => { pp._effects.length=0; pp.addEffect(name); };
+
+  const origRender=engine.renderer.render.bind(engine.renderer);
+  engine.renderer.render=(scene,camera,t)=>{ pp.begin(); origRender(scene,camera,t); pp.end(t); };
+
+  engine.start(scene,cam,(delta,time)=>{
+    meshes.forEach((m,i)=>{m.rotation.x+=delta*(.3+i*.05);m.rotation.y+=delta*(.5+i*.03);});
+    p1.position.x=Math.sin(time*.8)*5; p2.position.x=Math.cos(time*.6)*5;
+    cam.rotation.y=Math.sin(time*.1)*.15;
+  });
+}
+
+// ── Launch ────────────────────────────────────────────────────────────────────
+const DEMOS = [demo0, demo1, demo2, demo3, demo4, demo5];
+window.runDemo = (i) => { document.getElementById('hint').innerHTML='Click a demo above to switch scenes'; DEMOS[i](); };
+demo0();
+console.log('%c✦ NovaJS Standalone — WebGL2 Engine', 'color:#a78bfa;font-weight:bold;font-size:16px');
+</script>
+</body>
+</html>

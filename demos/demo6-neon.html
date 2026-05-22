@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>NovaJS — Demo 6: Neon Cyberpunk</title>
+<style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#000;overflow:hidden;}canvas{width:100vw;height:100vh;display:block;}
+#info{position:fixed;top:15px;left:15px;color:#f0f;font-family:monospace;font-size:13px;}
+#back{position:fixed;top:15px;right:15px;background:#f0f3;border:1px solid #f0f;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;text-decoration:none;}</style>
+</head><body>
+<canvas id="c"></canvas>
+<div id="info">✦ NovaJS — Neon Cyberpunk<br>Glow · Glitch · Scanlines · Hologram</div>
+<a id="back" href="../index.html">← Back</a>
+<script type="module">
+import * as Nova from '../src/novajs.js';
+
+// ── Shared vertex shader ───────────────────────────────────────────────────────
+const VERT = `#version 300 es
+precision highp float;
+in vec3 position; in vec3 normal; in vec2 uv;
+uniform mat4 modelMatrix; uniform mat4 viewMatrix; uniform mat4 projectionMatrix;
+uniform mat3 normalMatrix; uniform float time;
+out vec3 vNormal; out vec3 vWorldPos; out vec2 vUV;
+void main(){
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorldPos = wp.xyz; vNormal = normalize(normalMatrix * normal); vUV = uv;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
+// Neon grid floor
+const GRID_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUV; in vec3 vWorldPos;
+uniform float time;
+out vec4 fragColor;
+void main(){
+  vec2 grid = abs(fract(vUV * 20.0 - 0.5) - 0.5) / fwidth(vUV * 20.0);
+  float line = min(grid.x, grid.y);
+  float g = 1.0 - min(line, 1.0);
+  // Animate grid color
+  float t = time * 0.3;
+  vec3 a = vec3(0.0, 0.8, 1.0); // cyan
+  vec3 b = vec3(1.0, 0.0, 0.8); // magenta
+  vec3 col = mix(a, b, sin(t + vUV.x * 3.14) * 0.5 + 0.5);
+  float dist = length(vUV - 0.5);
+  float fog = 1.0 - smoothstep(0.3, 0.7, dist);
+  fragColor = vec4(col * g * fog * 2.0, g * fog * 0.9);
+}`;
+
+// Glitch cube
+const GLITCH_FRAG = `#version 300 es
+precision highp float;
+in vec3 vNormal; in vec3 vWorldPos; in vec2 vUV;
+uniform float time;
+out vec4 fragColor;
+float hash(float n){ return fract(sin(n)*43758.5); }
+void main(){
+  // Glitch offset
+  float glitchTime = floor(time * 8.0);
+  float glitchOn   = step(0.85, hash(glitchTime));
+  float glitchY    = floor(vUV.y * 20.0) / 20.0;
+  float offset     = glitchOn * (hash(glitchTime + glitchY) - 0.5) * 0.3;
+  vec3 N = normalize(vNormal);
+  float scan = sin(vWorldPos.y * 50.0 - time * 10.0) * 0.5 + 0.5;
+  float t = time * 0.5 + offset;
+  vec3 col = vec3(sin(t)*0.5+0.5, sin(t+2.09)*0.5+0.5, sin(t+4.19)*0.5+0.5);
+  col *= 0.5 + scan * 0.5;
+  // Edge glow
+  float edge = pow(1.0 - abs(dot(N, normalize(vec3(0,0,1)))), 3.0);
+  col += col * edge * 2.0;
+  fragColor = vec4(col, 1.0);
+}`;
+
+// Fire shader
+const FIRE_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUV; in vec3 vWorldPos;
+uniform float time;
+out vec4 fragColor;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5);}
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
+float fbm(vec2 p){float v=0.,a=0.5;for(int i=0;i<5;i++){v+=a*noise(p);p*=2.;a*=0.5;}return v;}
+void main(){
+  vec2 uv = vUV;
+  uv.y = 1.0 - uv.y; // flip
+  // Shape: narrow at top
+  float shape = uv.x * (1.0 - uv.x) * 4.0;
+  shape *= smoothstep(1.0, 0.0, uv.y);
+  // Animated noise
+  float n = fbm(uv * 3.0 + vec2(0, -time * 1.5));
+  n += fbm(uv * 5.0 + vec2(time * 0.2, -time * 2.0)) * 0.5;
+  float fire = n * shape;
+  // Color ramp
+  vec3 col = vec3(0);
+  col = mix(col, vec3(1.0, 0.1, 0.0), smoothstep(0.0, 0.3, fire));
+  col = mix(col, vec3(1.0, 0.6, 0.0), smoothstep(0.3, 0.6, fire));
+  col = mix(col, vec3(1.0, 1.0, 0.8), smoothstep(0.6, 1.0, fire));
+  fragColor = vec4(col, smoothstep(0.0, 0.2, fire));
+}`;
+
+// Neon sphere
+const NEON_SPHERE_FRAG = `#version 300 es
+precision highp float;
+in vec3 vNormal; in vec3 vWorldPos; in vec2 vUV;
+uniform float time; uniform vec3 cameraPos;
+out vec4 fragColor;
+void main(){
+  vec3 N = normalize(vNormal);
+  vec3 V = normalize(cameraPos - vWorldPos);
+  float rim = pow(1.0 - max(dot(N,V),0.0), 2.0);
+  float t = time;
+  vec3 c1 = vec3(0.0, 1.0, 1.0);
+  vec3 c2 = vec3(1.0, 0.0, 1.0);
+  vec3 col = mix(c1, c2, sin(vUV.y * 12.566 - t * 2.0) * 0.5 + 0.5);
+  col *= rim;
+  col += col * rim * 3.0;
+  // Pulse
+  float pulse = sin(time * 4.0) * 0.5 + 0.5;
+  col += c1 * pulse * rim * 0.5;
+  fragColor = vec4(col, 1.0);
+}`;
+
+const canvas = document.getElementById('c');
+const engine = new Nova.Engine(canvas);
+const scene  = new Nova.Scene();
+scene.setBackground(0.01, 0.0, 0.03, 1);
+
+const camera = new Nova.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 200);
+camera.position.set(0, 3, 12);
+camera.rotation.x = -0.2;
+
+scene.add(new Nova.AmbientLight(0x110022, 0.3));
+const neonPink = new Nova.PointLight(0xff00ff, 3, 20);
+neonPink.position.set(-5, 2, 0); scene.add(neonPink);
+const neonCyan = new Nova.PointLight(0x00ffff, 3, 20);
+neonCyan.position.set(5, 2, 0);  scene.add(neonCyan);
+
+// Grid floor
+const floor = new Nova.Mesh(
+  new Nova.PlaneGeometry(30, 30, 1, 1),
+  new Nova.ShaderMaterial({ vertexShader: VERT, fragmentShader: GRID_FRAG })
+);
+scene.add(floor);
+
+// Glitch cube
+const cube = new Nova.Mesh(
+  new Nova.BoxGeometry(2, 2, 2),
+  new Nova.ShaderMaterial({ vertexShader: VERT, fragmentShader: GLITCH_FRAG })
+);
+cube.position.set(-4, 1, 0);
+scene.add(cube);
+
+// Fire sphere
+const fireSphere = new Nova.Mesh(
+  new Nova.SphereGeometry(1.2, 32, 24),
+  new Nova.ShaderMaterial({ vertexShader: VERT, fragmentShader: FIRE_FRAG })
+);
+fireSphere.position.set(0, 1, 0);
+scene.add(fireSphere);
+
+// Neon sphere
+const neonSphere = new Nova.Mesh(
+  new Nova.SphereGeometry(1, 48, 32),
+  new Nova.ShaderMaterial({ vertexShader: VERT, fragmentShader: NEON_SPHERE_FRAG })
+);
+neonSphere.position.set(4, 1, 0);
+scene.add(neonSphere);
+
+// Floating torus
+const torus = new Nova.Mesh(
+  new Nova.TorusGeometry(1, 0.3, 32, 16),
+  new Nova.ShaderMaterial({ vertexShader: VERT, fragmentShader: GLITCH_FRAG })
+);
+torus.position.set(0, 4.5, 0);
+scene.add(torus);
+
+let angle = 0;
+engine.start(scene, camera, (delta, time) => {
+  angle += delta * 0.2;
+  camera.position.x = Math.sin(angle) * 12;
+  camera.position.z = Math.cos(angle) * 12;
+  camera.rotation.y = -angle;
+
+  cube.rotation.y   += delta * 0.8;
+  cube.rotation.x   += delta * 0.3;
+  fireSphere.rotation.y += delta * 0.5;
+  neonSphere.rotation.y -= delta * 0.6;
+  torus.rotation.x  += delta * 0.7;
+  torus.rotation.z  += delta * 0.4;
+
+  // Animate lights
+  neonPink.position.x = Math.sin(time*0.7) * 6;
+  neonCyan.position.x = Math.cos(time*0.5) * 6;
+
+  neonSphere.material.uniforms['cameraPos'] = [camera.position.x, camera.position.y, camera.position.z];
+});
+</script></body></html>

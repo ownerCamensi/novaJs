@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>NovaJS — Demo 3: FPS Controls</title>
+  <style>
+    * { margin:0;padding:0;box-sizing:border-box; }
+    body { background:#000;overflow:hidden; }
+    canvas { width:100vw;height:100vh;display:block; }
+    #crosshair { position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:20px;pointer-events:none;opacity:0.7; }
+    #info { position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#fff;font-family:monospace;font-size:13px;text-align:center;background:#0005;padding:10px 20px;border-radius:8px; }
+    #back { position:fixed;top:15px;right:15px;background:#fff2;border:1px solid #fff4;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;text-decoration:none;z-index:10; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="crosshair">+</div>
+  <div id="info">Click canvas to capture mouse · WASD = Move · Mouse = Look · Space = Jump · Shift = Sprint · C = Crouch</div>
+  <a id="back" href="../index.html">← Back</a>
+
+<script type="module">
+import * as Nova from '../src/novajs.js';
+
+const canvas = document.getElementById('c');
+const engine = new Nova.Engine(canvas);
+const scene  = new Nova.Scene();
+scene.setBackground(0.4, 0.6, 0.9, 1); // sky blue
+
+const camera = new Nova.PerspectiveCamera(75, innerWidth/innerHeight, 0.05, 500);
+
+// ── Lights ────────────────────────────────────────────────────────────────────
+scene.add(new Nova.AmbientLight(0xadd8e6, 0.5));
+const sun = new Nova.DirectionalLight(0xfff8e7, 1.0);
+sun.position.set(100, 200, 50); sun.target.set(0,0,0);
+scene.add(sun);
+
+// ── FPS Controls ──────────────────────────────────────────────────────────────
+const controls = new Nova.FPSControls(camera, canvas, {
+  moveSpeed: 8, sprintMult: 2.2, jumpForce: 7, gravity: 25, eyeHeight: 1.8, groundY: 0
+});
+
+// ── World ─────────────────────────────────────────────────────────────────────
+// Floor
+const floor = new Nova.Mesh(
+  new Nova.PlaneGeometry(100, 100, 20, 20),
+  new Nova.BasicMaterial({ color:{ r:0.25, g:0.55, b:0.25 } })
+);
+scene.add(floor);
+
+// Buildings / boxes
+const buildingColors = [
+  { r:0.7, g:0.5, b:0.3 }, { r:0.6, g:0.6, b:0.7 },
+  { r:0.8, g:0.6, b:0.4 }, { r:0.5, g:0.5, b:0.6 }
+];
+for (let i = 0; i < 20; i++) {
+  const w = 1.5 + Math.random() * 3;
+  const h = 2 + Math.random() * 8;
+  const d = 1.5 + Math.random() * 3;
+  const building = new Nova.Mesh(
+    new Nova.BoxGeometry(w, h, d),
+    new Nova.BasicMaterial({ color: buildingColors[i % buildingColors.length] })
+  );
+  building.position.set(
+    (Math.random() - 0.5) * 60,
+    h / 2,
+    (Math.random() - 0.5) * 60
+  );
+  scene.add(building);
+}
+
+// Trees (rough cylinders via stacked boxes)
+for (let i = 0; i < 15; i++) {
+  const trunk = new Nova.Mesh(
+    new Nova.BoxGeometry(0.3, 2, 0.3),
+    new Nova.BasicMaterial({ color:{ r:0.45, g:0.25, b:0.1 } })
+  );
+  const top = new Nova.Mesh(
+    new Nova.BoxGeometry(1.5, 2, 1.5),
+    new Nova.BasicMaterial({ color:{ r:0.15, g:0.5, b:0.15 } })
+  );
+  const tx = (Math.random()-0.5)*50, tz = (Math.random()-0.5)*50;
+  trunk.position.set(tx, 1, tz);
+  top.position.set(tx, 2.5, tz);
+  scene.add(trunk); scene.add(top);
+}
+
+engine.start(scene, camera, (delta) => {
+  controls.update(delta);
+});
+</script>
+</body>
+</html>

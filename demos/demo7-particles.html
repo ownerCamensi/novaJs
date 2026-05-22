@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>NovaJS — Demo 7: Particles</title>
+<style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#000;overflow:hidden;}canvas{width:100vw;height:100vh;display:block;}
+#info{position:fixed;top:15px;left:15px;color:#fa0;font-family:monospace;font-size:13px;}
+#btns{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);display:flex;gap:10px;}
+.btn{background:#fa03;border:1px solid #fa07;color:#fff;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;}
+.btn:hover{background:#fa05;}
+#back{position:fixed;top:15px;right:15px;background:#fa03;border:1px solid #fa0;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;text-decoration:none;}</style>
+</head><body>
+<canvas id="c"></canvas>
+<div id="info">✦ NovaJS — Particle Systems<br>Point-sprite GPU particles</div>
+<div id="btns">
+  <button class="btn" onclick="setType('fire')">🔥 Fire</button>
+  <button class="btn" onclick="setType('smoke')">💨 Smoke</button>
+  <button class="btn" onclick="setType('sparks')">✨ Sparks</button>
+  <button class="btn" onclick="setType('snow')">❄️ Snow</button>
+</div>
+<a id="back" href="../index.html">← Back</a>
+<script type="module">
+import * as Nova from '../src/novajs.js';
+
+const canvas = document.getElementById('c');
+const engine = new Nova.Engine(canvas);
+const scene  = new Nova.Scene();
+scene.setBackground(0.02, 0.02, 0.04, 1);
+
+const camera = new Nova.PerspectiveCamera(65, innerWidth/innerHeight, 0.1, 200);
+camera.position.set(0, 3, 10);
+camera.rotation.x = -0.2;
+
+scene.add(new Nova.AmbientLight(0x111133, 0.5));
+const pt = new Nova.PointLight(0xff6600, 3, 15);
+pt.position.set(0, 1, 0); scene.add(pt);
+
+// Floor
+const floor = new Nova.Mesh(
+  new Nova.PlaneGeometry(20, 20),
+  new Nova.BasicMaterial({ color:{r:0.06,g:0.06,b:0.1} })
+);
+scene.add(floor);
+
+// Emitter platform
+const platform = new Nova.Mesh(
+  new Nova.BoxGeometry(1.5, 0.2, 1.5),
+  new Nova.BasicMaterial({ color:{r:0.3,g:0.3,b:0.35} })
+);
+platform.position.y = 0.1;
+scene.add(platform);
+
+// Multiple emitters
+const systems = [];
+for (let i = -2; i <= 2; i += 2) {
+  const ps = new Nova.ParticleSystem({ maxParticles:800, emitRate:80, emitterType:'fire' });
+  ps.position.set(i, 0.2, 0);
+  scene.add(ps);
+  systems.push(ps);
+}
+
+window.setType = (type) => {
+  systems.forEach(s => s.emitterType = type);
+  // Light color per type
+  const lightColors = { fire:[1,0.4,0], smoke:[0.5,0.5,0.7], sparks:[1,0.9,0.3], snow:[0.7,0.8,1] };
+  const lc = lightColors[type] || [1,1,1];
+  pt.color = {r:lc[0],g:lc[1],b:lc[2]};
+  scene.setBackground(type==='snow'?0.05:0.02, type==='snow'?0.05:0.02, type==='snow'?0.08:0.04, 1);
+};
+
+let angle = 0;
+engine.start(scene, camera, (delta, time) => {
+  systems.forEach(s => s.update(delta));
+  // Gentle orbit
+  angle += delta * 0.2;
+  camera.position.x = Math.sin(angle) * 10;
+  camera.position.z = Math.cos(angle) * 10;
+  camera.rotation.y = -angle;
+  pt.position.x = Math.sin(time*2)*1.5;
+  pt.position.z = Math.cos(time*2)*1.5;
+});
+</script></body></html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>NovaJS — Demo 5: Water</title>
+<style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#000;overflow:hidden;}canvas{width:100vw;height:100vh;display:block;}
+#info{position:fixed;top:15px;left:15px;color:#7df;font-family:monospace;font-size:13px;}
+#back{position:fixed;top:15px;right:15px;background:#7df3;border:1px solid #7df;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;text-decoration:none;}</style>
+</head><body>
+<canvas id="c"></canvas>
+<div id="info">✦ NovaJS — Water Shader<br>Procedural waves · Fresnel · Foam</div>
+<a id="back" href="../index.html">← Back</a>
+<script type="module">
+import * as Nova from '../src/novajs.js';
+
+const WATER_VERT = `#version 300 es
+precision highp float;
+in vec3 position; in vec3 normal; in vec2 uv;
+uniform mat4 modelMatrix; uniform mat4 viewMatrix; uniform mat4 projectionMatrix;
+uniform float time;
+out vec2 vUV; out vec3 vNormal; out vec3 vWorldPos;
+
+// Simple wave sum
+float wave(vec2 p, float freq, float amp, float speed, float dir){
+  return amp * sin(dot(p, vec2(cos(dir), sin(dir))) * freq + time * speed);
+}
+
+void main() {
+  vec3 pos = position;
+  // Sum multiple waves for realistic water
+  pos.y += wave(pos.xz, 1.5, 0.12, 1.2, 0.0);
+  pos.y += wave(pos.xz, 2.3, 0.07, 0.9, 1.1);
+  pos.y += wave(pos.xz, 4.1, 0.03, 2.0, 2.4);
+  pos.y += wave(pos.xz, 0.7, 0.18, 0.6, 3.7);
+
+  vUV = uv;
+  vec4 wp = modelMatrix * vec4(pos, 1.0);
+  vWorldPos = wp.xyz;
+  // Approximate normal from wave derivatives
+  float dx = wave(pos.xz+vec2(0.01,0), 1.5,0.12,1.2,0.0)-wave(pos.xz,1.5,0.12,1.2,0.0);
+  float dz = wave(pos.xz+vec2(0,0.01), 1.5,0.12,1.2,0.0)-wave(pos.xz,1.5,0.12,1.2,0.0);
+  vNormal = normalize(vec3(-dx * 100.0, 1.0, -dz * 100.0));
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
+const WATER_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUV; in vec3 vNormal; in vec3 vWorldPos;
+uniform float time; uniform vec3 cameraPos;
+out vec4 fragColor;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5);}
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
+void main() {
+  vec3 N = normalize(vNormal);
+  vec3 V = normalize(cameraPos - vWorldPos);
+  // Fresnel — more transparent looking down, more reflective at edges
+  float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+  // Deep vs shallow color
+  vec3 deep    = vec3(0.02, 0.12, 0.28);
+  vec3 shallow = vec3(0.08, 0.38, 0.52);
+  float depth  = clamp(vWorldPos.y * 0.5 + 0.5, 0.0, 1.0);
+  vec3 waterCol = mix(deep, shallow, depth);
+  // Sky reflection color
+  vec3 skyColor = vec3(0.4, 0.7, 1.0);
+  vec3 col = mix(waterCol, skyColor, fresnel * 0.6);
+  // Foam / white caps via noise
+  float foam = noise(vUV * 8.0 + vec2(time * 0.3)) * noise(vUV * 4.0 - vec2(time * 0.15));
+  foam = smoothstep(0.6, 0.85, foam) * 0.7;
+  col = mix(col, vec3(1.0), foam);
+  // Sun specular
+  vec3 L = normalize(vec3(1,1,0));
+  vec3 R = reflect(-L, N);
+  float spec = pow(max(dot(R, V), 0.0), 80.0);
+  col += vec3(1.0, 0.95, 0.8) * spec * 2.0;
+  fragColor = vec4(col, 0.88 + fresnel * 0.12);
+}`;
+
+const canvas = document.getElementById('c');
+const engine = new Nova.Engine(canvas);
+const scene  = new Nova.Scene();
+scene.setBackground(0.45, 0.65, 0.85, 1);
+
+const camera = new Nova.PerspectiveCamera(65, innerWidth/innerHeight, 0.1, 300);
+camera.position.set(0, 4, 10);
+camera.rotation.x = -0.35;
+
+scene.add(new Nova.AmbientLight(0xadd8e6, 0.6));
+const sun = new Nova.DirectionalLight(0xfff5cc, 1.2);
+sun.position.set(50, 80, 20); scene.add(sun);
+
+// Large water plane with high segments for vertex displacement
+const water = new Nova.Mesh(
+  new Nova.PlaneGeometry(40, 40, 80, 80),
+  new Nova.ShaderMaterial({ vertexShader: WATER_VERT, fragmentShader: WATER_FRAG })
+);
+scene.add(water);
+
+// Rocks
+for (let i = 0; i < 8; i++) {
+  const rock = new Nova.Mesh(
+    new Nova.SphereGeometry(0.3+Math.random()*0.5, 8, 6),
+    new Nova.BasicMaterial({ color:{ r:0.35, g:0.33, b:0.3 } })
+  );
+  rock.position.set((Math.random()-0.5)*20, -0.2+Math.random()*0.3, (Math.random()-0.5)*20);
+  scene.add(rock);
+}
+
+let angle = 0;
+engine.start(scene, camera, (delta, time) => {
+  angle += delta * 0.1;
+  camera.position.x = Math.sin(angle) * 10;
+  camera.position.z = Math.cos(angle) * 10;
+  camera.rotation.y = -angle;
+  // Upload cameraPos for Fresnel
+  water.material.uniforms['cameraPos'] = [camera.position.x, camera.position.y, camera.position.z];
+});
+</script></body></html>
